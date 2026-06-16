@@ -1,0 +1,97 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String        @id @default(cuid())
+  prontuario   String        @unique
+  passwordHash String
+  name         String
+  role         String        @default("EMPLOYEE")
+  createdAt    DateTime      @default(now())
+  pendencias   Pendencia[]
+  alertas      Alerta[]
+  certificados Certificado[]
+  solicitacoes Solicitacao[]
+  scores       UserScore[]
+}
+
+model EHSContent {
+  id         String  @id @default(cuid())
+  pillar     String
+  title      String
+  body       String
+  order      Int     @default(0)
+  isPublic   Boolean @default(true)
+  images     String  @default("[]") @db.Text
+  coverIndex Int     @default(0)
+}
+
+model Pendencia {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String
+  status      String    @default("OPEN")
+  dueDate     DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+model Alerta {
+  id             String    @id @default(cuid())
+  userId         String?
+  user           User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title          String
+  message        String
+  type           String    @default("INFO")
+  expiresAt      DateTime?
+  acknowledgedAt DateTime?
+  createdAt      DateTime  @default(now())
+}
+
+model Certificado {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trainingName String
+  filePath     String
+  issuedAt     DateTime @default(now())
+}
+
+model Solicitacao {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  message   String
+  status    String   @default("OPEN")
+  createdAt DateTime @default(now())
+}
+
+model Challenge {
+  id          String      @id @default(cuid())
+  title       String
+  description String
+  points      Int         @default(10)
+  weekStart   DateTime
+  active      Boolean     @default(true)
+  scores      UserScore[]
+}
+
+model UserScore {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  points      Int
+  completedAt DateTime  @default(now())
+
+  @@unique([userId, challengeId])
+}
