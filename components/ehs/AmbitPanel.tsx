@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -9,15 +9,94 @@ import {
   INFO_ROTATE_MS,
   type PillarKey,
 } from "@/lib/ehs";
+import { truncateSummary } from "@/lib/quiz";
+
+const SWIPE_THRESHOLD = 50;
+const AUTO_ROTATE_PAUSE_MS = 8000;
 
 type EHSItem = {
   id: string;
   title: string;
+  summary?: string;
   body: string;
   order: number;
   images?: string;
   coverIndex?: number;
 };
+
+function displaySummary(item: EHSItem): string {
+  if (item.summary?.trim()) return item.summary.trim();
+  return truncateSummary(item.body);
+}
+
+function hasExpandableContent(item: EHSItem): boolean {
+  const summary = displaySummary(item);
+  return item.body.trim().length > summary.length;
+}
+
+function InfoTextContent({
+  item,
+  pillar,
+  expanded,
+  onToggleExpand,
+  isLightTheme,
+}: {
+  item: EHSItem;
+  pillar: PillarKey;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  isLightTheme: boolean;
+}) {
+  const config = PILLAR_CONFIG[pillar];
+  const summary = displaySummary(item);
+  const canExpand = hasExpandableContent(item);
+  const textMuted = isLightTheme ? "#475569" : "rgba(255,255,255,0.85)";
+  const textTitle = isLightTheme ? "#1e293b" : "#ffffff";
+
+  return (
+    <>
+      <h3 className="font-semibold mb-2" style={{ color: textTitle }}>
+        {item.title}
+      </h3>
+      <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: textMuted }}>
+        {summary}
+      </p>
+      {canExpand && (
+        <>
+          <button
+            type="button"
+            onClick={onToggleExpand}
+            className="mt-3 text-sm font-medium underline underline-offset-2"
+            style={{ color: config.accentLight }}
+          >
+            {expanded ? "Ver menos" : "Saiba mais"}
+          </button>
+          <AnimatePresence initial={false}>
+            {expanded && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.3, ease: "easeInOut" }}
+                className="overflow-hidden"
+              >
+                <div
+                  className="mt-3 pt-3 border-t text-sm leading-relaxed whitespace-pre-wrap"
+                  style={{
+                    color: textMuted,
+                    borderColor: isLightTheme ? "rgba(22,163,74,0.2)" : "rgba(255,255,255,0.2)",
+                  }}
+                >
+                  {item.body}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </>
+      )}
+    </>
+  );
+}
 
 function orderedImages(item: EHSItem): string[] {
   const images = parseEHSImages(item.images);
@@ -30,9 +109,13 @@ function orderedImages(item: EHSItem): string[] {
 function InstagramPost({
   item,
   pillar,
+  expanded,
+  onToggleExpand,
 }: {
   item: EHSItem;
   pillar: PillarKey;
+  expanded: boolean;
+  onToggleExpand: () => void;
 }) {
   const config = PILLAR_CONFIG[pillar];
   const images = orderedImages(item);
@@ -102,9 +185,14 @@ function InstagramPost({
       <div className="px-3 py-3 space-y-1.5">
         <p className="text-sm">
           <span className="font-semibold text-slate-900 mr-1.5">{config.label}</span>
-          <span className="font-semibold text-slate-800">{item.title}</span>
         </p>
-        <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{item.body}</p>
+        <InfoTextContent
+          item={item}
+          pillar={pillar}
+          expanded={expanded}
+          onToggleExpand={onToggleExpand}
+          isLightTheme
+        />
       </div>
     </div>
   );
@@ -123,11 +211,46 @@ export function AmbitPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
+  const [expanded, setExpanded] = useState(false);
+  const [autoRotateEnabled, setAutoRotateEnabled] = useState(true);
+  const pauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const pauseAutoRotate = useCallback(() => {
+    setAutoRotateEnabled(false);
+    if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
+    pauseTimerRef.current = setTimeout(() => {
+      setAutoRotateEnabled(true);
+    }, AUTO_ROTATE_PAUSE_MS);
+  }, []);
+
+  const goTo = useCallback(
+    (nextIndex: number) => {
+      pauseAutoRotate();
+      setExpanded(false);
+      setIndex(nextIndex);
+    },
+    [pauseAutoRotate]
+  );
+
+  const goNext = useCallback(() => {
+    if (items.length === 0) return;
+    if (index >= items.length - 1) {
+      onAllItemsShown?.();
+      return;
+    }
+    goTo(index + 1);
+  }, [index, items.length, goTo, onAllItemsShown]);
+
+  const goPrev = useCallback(() => {
+    if (items.length === 0 || index <= 0) return;
+    goTo(index - 1);
+  }, [index, items.length, goTo]);
 
   useEffect(() => {
     if (!pillar) {
       setItems([]);
       setIndex(0);
+      setExpanded(false);
       return;
     }
 
@@ -144,6 +267,7 @@ export function AmbitPanel({
         if (!cancelled) {
           setItems(data);
           setIndex(0);
+          setExpanded(false);
         }
       })
       .catch((err: Error) => {
@@ -159,7 +283,7 @@ export function AmbitPanel({
   }, [pillar]);
 
   useEffect(() => {
-    if (loading || !pillar) return;
+    if (loading || !pillar || !autoRotateEnabled) return;
 
     if (items.length === 0) {
       if (onAllItemsShown) {
@@ -175,12 +299,19 @@ export function AmbitPanel({
           onAllItemsShown?.();
           return i;
         }
+        setExpanded(false);
         return i + 1;
       });
     }, INFO_ROTATE_MS);
 
     return () => clearInterval(timer);
-  }, [items, loading, pillar, onAllItemsShown]);
+  }, [items, loading, pillar, onAllItemsShown, autoRotateEnabled]);
+
+  useEffect(() => {
+    return () => {
+      if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
+    };
+  }, []);
 
   const current = useMemo(() => items[index], [items, index]);
 
@@ -189,6 +320,7 @@ export function AmbitPanel({
   const config = PILLAR_CONFIG[pillar];
   const isLightTheme = pillar === "HEALTH";
   const hasImages = current ? orderedImages(current).length > 0 : false;
+  const showNav = items.length > 1;
 
   return (
     <motion.div
@@ -219,69 +351,119 @@ export function AmbitPanel({
       )}
 
       {!loading && !error && current && (
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={current.id}
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.35 }}
-          >
-            {hasImages ? (
-              <InstagramPost item={current} pillar={pillar} />
-            ) : (
-              <div
-                className="rounded-2xl shadow-xl border p-6 min-h-[180px] backdrop-blur-md"
-                style={{
-                  backgroundColor: isLightTheme ? "rgba(255,255,255,0.88)" : "rgba(255,255,255,0.12)",
-                  borderColor: isLightTheme ? "rgba(22,163,74,0.25)" : "rgba(255,255,255,0.25)",
-                }}
-              >
-                <h2
-                  className="text-lg font-semibold mb-4 tracking-wide"
-                  style={{ color: isLightTheme ? config.color : config.textOnTheme }}
-                >
-                  {config.label}
-                </h2>
-                <h3
-                  className="font-semibold mb-2"
-                  style={{ color: isLightTheme ? "#1e293b" : "#ffffff" }}
-                >
-                  {current.title}
-                </h3>
-                <p
-                  className="text-sm leading-relaxed whitespace-pre-wrap"
-                  style={{ color: isLightTheme ? "#475569" : "rgba(255,255,255,0.85)" }}
-                >
-                  {current.body}
-                </p>
-              </div>
-            )}
+        <div className={`relative flex items-center gap-2 ${showNav ? "" : "justify-center"}`}>
+          {showNav && (
+            <button
+              type="button"
+              onClick={goPrev}
+              disabled={index === 0}
+              className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-lg disabled:opacity-30 transition-opacity"
+              style={{
+                backgroundColor: isLightTheme ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.15)",
+                color: isLightTheme ? config.color : "#ffffff",
+              }}
+              aria-label="Informativo anterior"
+            >
+              ‹
+            </button>
+          )}
 
-            {items.length > 1 && (
-              <div className="flex justify-center gap-1.5 mt-4">
-                {items.map((item, i) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setIndex(i)}
-                    className="w-2 h-2 rounded-full transition-all"
-                    style={{
-                      backgroundColor:
-                        i === index
-                          ? config.accentLight
-                          : isLightTheme
-                            ? "#cbd5e1"
-                            : "rgba(255,255,255,0.35)",
-                      transform: i === index ? "scale(1.3)" : "scale(1)",
+          <div className="flex-1 min-w-0 touch-pan-y">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={current.id}
+                drag={showNav ? "x" : false}
+                dragConstraints={{ left: 0, right: 0 }}
+                dragElastic={0.15}
+                onDragEnd={(_, info) => {
+                  if (info.offset.x <= -SWIPE_THRESHOLD) goNext();
+                  else if (info.offset.x >= SWIPE_THRESHOLD) goPrev();
+                }}
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.35 }}
+                className="cursor-grab active:cursor-grabbing"
+              >
+                {hasImages ? (
+                  <InstagramPost
+                    item={current}
+                    pillar={pillar}
+                    expanded={expanded}
+                    onToggleExpand={() => {
+                      pauseAutoRotate();
+                      setExpanded((v) => !v);
                     }}
-                    aria-label={`Informativo ${i + 1}`}
                   />
-                ))}
-              </div>
-            )}
-          </motion.div>
-        </AnimatePresence>
+                ) : (
+                  <div
+                    className="rounded-2xl shadow-xl border p-6 min-h-[180px] backdrop-blur-md"
+                    style={{
+                      backgroundColor: isLightTheme ? "rgba(255,255,255,0.88)" : "rgba(255,255,255,0.12)",
+                      borderColor: isLightTheme ? "rgba(22,163,74,0.25)" : "rgba(255,255,255,0.25)",
+                    }}
+                  >
+                    <h2
+                      className="text-lg font-semibold mb-4 tracking-wide"
+                      style={{ color: isLightTheme ? config.color : config.textOnTheme }}
+                    >
+                      {config.label}
+                    </h2>
+                    <InfoTextContent
+                      item={current}
+                      pillar={pillar}
+                      expanded={expanded}
+                      onToggleExpand={() => {
+                        pauseAutoRotate();
+                        setExpanded((v) => !v);
+                      }}
+                      isLightTheme={isLightTheme}
+                    />
+                  </div>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          {showNav && (
+            <button
+              type="button"
+              onClick={goNext}
+              disabled={index >= items.length - 1}
+              className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-lg disabled:opacity-30 transition-opacity"
+              style={{
+                backgroundColor: isLightTheme ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.15)",
+                color: isLightTheme ? config.color : "#ffffff",
+              }}
+              aria-label="Próximo informativo"
+            >
+              ›
+            </button>
+          )}
+        </div>
+      )}
+
+      {!loading && !error && showNav && (
+        <div className="flex justify-center gap-1.5 mt-4">
+          {items.map((item, i) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => goTo(i)}
+              className="w-2 h-2 rounded-full transition-all"
+              style={{
+                backgroundColor:
+                  i === index
+                    ? config.accentLight
+                    : isLightTheme
+                      ? "#cbd5e1"
+                      : "rgba(255,255,255,0.35)",
+                transform: i === index ? "scale(1.3)" : "scale(1)",
+              }}
+              aria-label={`Informativo ${i + 1}`}
+            />
+          ))}
+        </div>
       )}
     </motion.div>
   );

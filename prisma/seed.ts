@@ -1,11 +1,33 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { truncateSummary } from "../lib/quiz";
 
 const prisma = new PrismaClient();
 
+const SEED_QUIZ_QUESTIONS = [
+  {
+    question: "Qual EPI é obrigatório em áreas de produção?",
+    options: ["Capacete, óculos e luvas", "Apenas crachá", "Somente botina"],
+    correct: 0,
+  },
+  {
+    question: "O que fazer em caso de incêndio?",
+    options: ["Esconder-se", "Seguir rotas de fuga sinalizadas", "Usar elevador"],
+    correct: 1,
+  },
+  {
+    question: "Como reportar um quase-acidente?",
+    options: ["Ignorar", "Registrar pelo app ou supervisor", "Apenas contar colegas"],
+    correct: 1,
+  },
+];
+
 async function main() {
+  await prisma.userQuizSession.deleteMany();
+  await prisma.userQuizAssignment.deleteMany();
   await prisma.userScore.deleteMany();
   await prisma.challenge.deleteMany();
+  await prisma.quizQuestion.deleteMany();
   await prisma.solicitacao.deleteMany();
   await prisma.certificado.deleteMany();
   await prisma.alerta.deleteMany();
@@ -110,7 +132,12 @@ async function main() {
   ];
 
   for (const content of ehsContents) {
-    await prisma.eHSContent.create({ data: content });
+    await prisma.eHSContent.create({
+      data: {
+        ...content,
+        summary: truncateSummary(content.body),
+      },
+    });
   }
 
   await prisma.pendencia.createMany({
@@ -183,6 +210,17 @@ async function main() {
       active: true,
     },
   });
+
+  for (const q of SEED_QUIZ_QUESTIONS) {
+    await prisma.quizQuestion.create({
+      data: {
+        question: q.question,
+        options: JSON.stringify(q.options),
+        correct: q.correct,
+        active: true,
+      },
+    });
+  }
 
   console.log("Seed concluído!");
   console.log("Admin: admin / admin123");

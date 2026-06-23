@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { rotateQuizPageToken } from "@/lib/quiz-client";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -32,6 +33,8 @@ export default function LoginPage() {
         setError(data.error || "Erro ao entrar.");
         return;
       }
+
+      rotateQuizPageToken();
 
       if (redirect && redirect.startsWith("/")) {
         router.push(redirect);

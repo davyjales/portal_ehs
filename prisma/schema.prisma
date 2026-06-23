@@ -25,7 +25,8 @@ model EHSContent {
   id         String  @id @default(cuid())
   pillar     String
   title      String
-  body       String
+  summary    String  @db.Text
+  body       String  @db.Text
   order      Int     @default(0)
   isPublic   Boolean @default(true)
   images     String  @default("[]") @db.Text
@@ -85,13 +86,44 @@ model Challenge {
 }
 
 model UserScore {
-  id          String    @id @default(cuid())
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  challengeId    String
+  challenge      Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  points         Int
+  correctCount   Int       @default(0)
+  responseTimeMs Int       @default(0)
+  completedAt    DateTime  @default(now())
+
+  @@unique([userId, challengeId])
+}
+
+model QuizQuestion {
+  id       String  @id @default(cuid())
+  question String
+  options  String  @db.Text
+  correct  Int
+  active   Boolean @default(true)
+}
+
+model UserQuizAssignment {
+  id          String @id @default(cuid())
   userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   challengeId String
-  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
-  points      Int
-  completedAt DateTime  @default(now())
+  questionId  String
+  order       Int
+
+  @@unique([userId, challengeId, questionId])
+  @@unique([userId, challengeId, order])
+}
+
+model UserQuizSession {
+  id          String   @id @default(cuid())
+  userId      String
+  challengeId String
+  pageToken   String
+  startedAt   DateTime @default(now())
 
   @@unique([userId, challengeId])
 }

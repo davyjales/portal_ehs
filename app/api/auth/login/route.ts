@@ -40,6 +40,11 @@ export async function POST(request: NextRequest) {
       role: user.role as Role,
     });
 
+    await prisma.$transaction([
+      prisma.userQuizSession.deleteMany({ where: { userId: user.id } }),
+      prisma.userQuizAssignment.deleteMany({ where: { userId: user.id } }),
+    ]);
+
     const response = NextResponse.json({
       role: user.role,
       name: user.name,

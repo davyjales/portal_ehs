@@ -7,6 +7,7 @@ import {
   PILLARS,
   PILLAR_CONFIG,
   IDLE_AUTO_START_MS,
+  THEME_TRANSITION_MS,
   TRIANGLE_ROTATE_SEC,
   type PillarKey,
 } from "@/lib/ehs";
@@ -160,7 +161,13 @@ function PillarStack({
   compact?: boolean;
   onSwitch: (pillar: PillarKey, origin: Point) => void;
 }) {
-  const stackOrder = [selected, ...PILLARS.filter((p) => p !== selected)];
+  const [wordReady, setWordReady] = useState(false);
+
+  useEffect(() => {
+    setWordReady(false);
+    const timer = setTimeout(() => setWordReady(true), THEME_TRANSITION_MS);
+    return () => clearTimeout(timer);
+  }, [selected]);
 
   return (
     <motion.div
@@ -171,15 +178,10 @@ function PillarStack({
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
     >
-      {stackOrder.map((pillar, index) => {
+      {PILLARS.map((pillar) => {
         const isActive = pillar === selected;
         return (
-          <motion.div
-            key={pillar}
-            layout
-            className="flex items-center gap-3"
-            transition={{ type: "spring", stiffness: 380, damping: 30 }}
-          >
+          <div key={pillar} className="flex items-center gap-3 min-h-11 sm:min-h-12">
             <LetterButton
               pillar={pillar}
               active={isActive}
@@ -187,22 +189,23 @@ function PillarStack({
               layoutId={`pillar-${pillar}`}
               onClick={(origin) => onSwitch(pillar, origin)}
             />
-            <AnimatePresence mode="wait">
-              {isActive && (
-                <motion.div
-                  key={pillar}
-                  initial={{ opacity: 0, width: 0 }}
-                  animate={{ opacity: 1, width: "auto" }}
-                  exit={{ opacity: 0, width: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="overflow-hidden"
-                >
-                  <PillarWord pillar={pillar} />
-                </motion.div>
-              )}
-            </AnimatePresence>
-            {!isActive && index > 0 && <div className="w-0 sm:w-0" aria-hidden />}
-          </motion.div>
+            <div className="overflow-hidden min-w-0">
+              <AnimatePresence mode="wait">
+                {isActive && wordReady && (
+                  <motion.div
+                    key={pillar}
+                    initial={{ opacity: 0, width: 0 }}
+                    animate={{ opacity: 1, width: "auto" }}
+                    exit={{ opacity: 0, width: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="overflow-hidden"
+                  >
+                    <PillarWord pillar={pillar} />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
         );
       })}
     </motion.div>

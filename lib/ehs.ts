@@ -53,6 +53,8 @@ export const TEAM_BG_OVERLAY =
 
 export const INFO_ROTATE_MS = 6000;
 export const IDLE_AUTO_START_MS = 30000;
+/** Duração da transição de cor/banner de fundo (ms) */
+export const THEME_TRANSITION_MS = 1150;
 /** Segundos para uma volta completa do triângulo E/H/S (menor = mais rápido) */
 export const TRIANGLE_ROTATE_SEC = 14;
 

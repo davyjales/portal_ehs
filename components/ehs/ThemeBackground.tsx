@@ -6,6 +6,7 @@ import {
   NEUTRAL_BG,
   TEAM_BG_IMAGE,
   TEAM_BG_OVERLAY,
+  THEME_TRANSITION_MS,
   type PillarKey,
 } from "@/lib/ehs";
 
@@ -45,7 +46,7 @@ export function ThemeBackground({
             initial={{ clipPath: `circle(0% at ${originX}px ${originY}px)` }}
             animate={{ clipPath: `circle(150% at ${originX}px ${originY}px)` }}
             exit={{ clipPath: `circle(0% at ${originX}px ${originY}px)` }}
-            transition={{ duration: 1.15, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: THEME_TRANSITION_MS / 1000, ease: [0.22, 1, 0.36, 1] }}
           >
             <div
               className="absolute inset-0 bg-cover bg-center"

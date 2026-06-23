@@ -10,6 +10,7 @@ type EHSContent = {
   id: string;
   pillar: string;
   title: string;
+  summary: string;
   body: string;
   order: number;
   isPublic: boolean;
@@ -21,6 +22,25 @@ type Alerta = { id: string; title: string; type: string; user: { name: string } 
 type Challenge = { id: string; title: string; points: number; active: boolean; weekStart: string };
 
 type AdminSection = "ehs" | "pendencias" | "alertas" | "challenges" | "users";
+
+const EMPTY_EHS_FORM = {
+  pillar: "ENVIRONMENT",
+  title: "",
+  summary: "",
+  body: "",
+  order: 0,
+  images: [] as string[],
+  coverIndex: 0,
+};
+
+function parseEhsImages(raw?: string): string[] {
+  try {
+    const parsed = JSON.parse(raw || "[]");
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 export function AdminPanel() {
   const router = useRouter();
@@ -35,14 +55,8 @@ export function AdminPanel() {
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [users, setUsers] = useState<User[]>([]);
 
-  const [ehsForm, setEhsForm] = useState({
-    pillar: "ENVIRONMENT",
-    title: "",
-    body: "",
-    order: 0,
-    images: [] as string[],
-    coverIndex: 0,
-  });
+  const [ehsForm, setEhsForm] = useState({ ...EMPTY_EHS_FORM, images: [] as string[] });
+  const [editingEhsId, setEditingEhsId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [pendForm, setPendForm] = useState({ prontuario: "", title: "", description: "", dueDate: "" });
   const [alertForm, setAlertForm] = useState({ prontuario: "", title: "", message: "", type: "INFO", broadcast: false });
@@ -90,13 +104,53 @@ export function AdminPanel() {
     load();
   }
 
+  async function apiPut(path: string, body: unknown) {
+    setMessage(null);
+    setError(null);
+    const res = await fetch(path, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Erro na operação.");
+    setMessage(data.message || "Atualizado com sucesso!");
+    load();
+  }
+
+  const emptyEhsForm = () => ({ ...EMPTY_EHS_FORM, images: [] as string[] });
+
+  function startEditEhs(item: EHSContent) {
+    setEditingEhsId(item.id);
+    setEhsForm({
+      pillar: item.pillar,
+      title: item.title,
+      summary: item.summary ?? "",
+      body: item.body,
+      order: item.order,
+      images: parseEhsImages(item.images),
+      coverIndex: item.coverIndex ?? 0,
+    });
+    setError(null);
+    setMessage(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function cancelEditEhs() {
+    setEditingEhsId(null);
+    setEhsForm(emptyEhsForm());
+    setError(null);
+  }
+
   async function apiDelete(path: string) {
     if (!confirm("Confirmar exclusão?")) return;
     setMessage(null);
     setError(null);
+    const id = new URL(path, "http://local").searchParams.get("id");
     const res = await fetch(path, { method: "DELETE" });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Erro ao excluir.");
+    if (id && id === editingEhsId) cancelEditEhs();
     setMessage("Excluído com sucesso.");
     load();
   }
@@ -162,22 +216,33 @@ export function AdminPanel() {
               onSubmit={async (e) => {
                 e.preventDefault();
                 try {
-                  await apiPost("/api/admin/ehs", ehsForm);
-                  setEhsForm({
-                    pillar: "ENVIRONMENT",
-                    title: "",
-                    body: "",
-                    order: 0,
-                    images: [],
-                    coverIndex: 0,
-                  });
+                  if (editingEhsId) {
+                    await apiPut("/api/admin/ehs", { id: editingEhsId, ...ehsForm });
+                    setEditingEhsId(null);
+                  } else {
+                    await apiPost("/api/admin/ehs", ehsForm);
+                  }
+                  setEhsForm(emptyEhsForm());
                 } catch (err) {
                   setError(err instanceof Error ? err.message : "Erro");
                 }
               }}
               className="bg-white rounded-xl p-4 shadow border space-y-3"
             >
-              <h2 className="font-semibold">Novo informativo</h2>
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="font-semibold">
+                  {editingEhsId ? "Editar informativo" : "Novo informativo"}
+                </h2>
+                {editingEhsId && (
+                  <button
+                    type="button"
+                    onClick={cancelEditEhs}
+                    className="text-sm text-slate-500 hover:text-slate-700"
+                  >
+                    Cancelar edição
+                  </button>
+                )}
+              </div>
               <select
                 value={ehsForm.pillar}
                 onChange={(e) => setEhsForm({ ...ehsForm, pillar: e.target.value })}
@@ -197,11 +262,19 @@ export function AdminPanel() {
                 className="w-full px-3 py-2 rounded-lg border"
               />
               <textarea
-                placeholder="Texto"
+                placeholder="Resumo da informação principal"
+                value={ehsForm.summary}
+                onChange={(e) => setEhsForm({ ...ehsForm, summary: e.target.value })}
+                required
+                rows={2}
+                className="w-full px-3 py-2 rounded-lg border"
+              />
+              <textarea
+                placeholder="Informação Completa"
                 value={ehsForm.body}
                 onChange={(e) => setEhsForm({ ...ehsForm, body: e.target.value })}
                 required
-                rows={3}
+                rows={4}
                 className="w-full px-3 py-2 rounded-lg border"
               />
               <input
@@ -300,7 +373,7 @@ export function AdminPanel() {
                 disabled={uploading}
                 className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm disabled:opacity-50"
               >
-                Criar informativo
+                {editingEhsId ? "Salvar alterações" : "Criar informativo"}
               </button>
             </form>
 
@@ -325,14 +398,24 @@ export function AdminPanel() {
                       photoCount = 0;
                     }
                     return (
-                      <tr key={item.id} className="border-t">
+                      <tr
+                        key={item.id}
+                        className={`border-t ${editingEhsId === item.id ? "bg-amber-50" : ""}`}
+                      >
                         <td className="p-3">
                           {PILLAR_CONFIG[item.pillar as keyof typeof PILLAR_CONFIG]?.label}
                         </td>
                         <td className="p-3">{item.title}</td>
                         <td className="p-3">{photoCount > 0 ? `${photoCount} foto(s)` : "—"}</td>
                         <td className="p-3">{item.order}</td>
-                        <td className="p-3 text-right">
+                        <td className="p-3 text-right space-x-3">
+                          <button
+                            type="button"
+                            onClick={() => startEditEhs(item)}
+                            className="text-slate-700 text-xs hover:underline"
+                          >
+                            Editar
+                          </button>
                           <button
                             type="button"
                             onClick={() => apiDelete(`/api/admin/ehs?id=${item.id}`).catch((e) => setError(e.message))}
