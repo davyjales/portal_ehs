@@ -25,7 +25,6 @@ type EHSItem = {
 };
 
 function displaySummary(item: EHSItem): string {
-  if (item.summary?.trim()) return item.summary.trim();
   return truncateSummary(item.body);
 }
 

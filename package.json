@@ -10,6 +10,7 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
+    "db:import-users": "tsx prisma/import-users.ts",
     "db:setup": "prisma migrate deploy && prisma db seed",
     "postinstall": "prisma generate"
   },

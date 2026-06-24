@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { truncateSummary } from "../lib/quiz";
+import { DEFAULT_ADMIN_PASSWORD, USER_SEED_DATA } from "./users-data";
 
 const prisma = new PrismaClient();
 
@@ -22,6 +23,21 @@ const SEED_QUIZ_QUESTIONS = [
   },
 ];
 
+async function seedUsers() {
+  const adminHash = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
+
+  for (const user of USER_SEED_DATA) {
+    await prisma.user.create({
+      data: {
+        prontuario: user.prontuario,
+        name: user.name,
+        role: user.role,
+        passwordHash: user.role === "ADMIN" ? adminHash : null,
+      },
+    });
+  }
+}
+
 async function main() {
   await prisma.userQuizSession.deleteMany();
   await prisma.userQuizAssignment.deleteMany();
@@ -35,26 +51,16 @@ async function main() {
   await prisma.eHSContent.deleteMany();
   await prisma.user.deleteMany();
 
-  const adminHash = await bcrypt.hash("admin123", 10);
-  const employeeHash = await bcrypt.hash("123456", 10);
+  await seedUsers();
 
-  const admin = await prisma.user.create({
-    data: {
-      prontuario: "admin",
-      passwordHash: adminHash,
-      name: "Administrador EHS",
-      role: "ADMIN",
-    },
+  const sampleEmployee = await prisma.user.findFirst({
+    where: { role: "EMPLOYEE" },
+    orderBy: { name: "asc" },
   });
 
-  const employee = await prisma.user.create({
-    data: {
-      prontuario: "12345",
-      passwordHash: employeeHash,
-      name: "João Silva",
-      role: "EMPLOYEE",
-    },
-  });
+  if (!sampleEmployee) {
+    throw new Error("Nenhum funcionário encontrado após importação.");
+  }
 
   const ehsContents = [
     {
@@ -143,14 +149,14 @@ async function main() {
   await prisma.pendencia.createMany({
     data: [
       {
-        userId: employee.id,
+        userId: sampleEmployee.id,
         title: "Renovar NR-35",
         description: "Certificação de trabalho em altura vence em 15 dias. Agende o treinamento.",
         status: "OPEN",
         dueDate: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
       },
       {
-        userId: employee.id,
+        userId: sampleEmployee.id,
         title: "Assinar política de EPIs",
         description: "Leia e assine digitalmente a nova política de equipamentos de proteção.",
         status: "OPEN",
@@ -162,7 +168,7 @@ async function main() {
   await prisma.alerta.createMany({
     data: [
       {
-        userId: employee.id,
+        userId: sampleEmployee.id,
         title: "Simulado de incêndio",
         message: "Simulado obrigatório na sexta-feira às 10h. Compareça com crachá visível.",
         type: "WARNING",
@@ -180,7 +186,7 @@ async function main() {
 
   await prisma.certificado.create({
     data: {
-      userId: employee.id,
+      userId: sampleEmployee.id,
       trainingName: "NR-10 — Segurança em Instalações Elétricas",
       filePath: "/certificados/nr10-exemplo.pdf",
       issuedAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
@@ -189,7 +195,7 @@ async function main() {
 
   await prisma.solicitacao.create({
     data: {
-      userId: employee.id,
+      userId: sampleEmployee.id,
       type: "SUGESTAO",
       message: "Instalar bebedouros com filtro na área de expedição.",
       status: "IN_PROGRESS",
@@ -222,9 +228,11 @@ async function main() {
     });
   }
 
+  const adminCount = USER_SEED_DATA.filter((u) => u.role === "ADMIN").length;
+
   console.log("Seed concluído!");
-  console.log("Admin: admin / admin123");
-  console.log("Funcionário: 12345 / 123456");
+  console.log(`${USER_SEED_DATA.length} usuários importados (${adminCount} administradores).`);
+  console.log(`Senha inicial dos administradores: ${DEFAULT_ADMIN_PASSWORD}`);
 }
 
 main()

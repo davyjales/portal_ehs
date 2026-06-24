@@ -26,7 +26,6 @@ type AdminSection = "ehs" | "pendencias" | "alertas" | "challenges" | "users";
 const EMPTY_EHS_FORM = {
   pillar: "ENVIRONMENT",
   title: "",
-  summary: "",
   body: "",
   order: 0,
   images: [] as string[],
@@ -61,7 +60,20 @@ export function AdminPanel() {
   const [pendForm, setPendForm] = useState({ prontuario: "", title: "", description: "", dueDate: "" });
   const [alertForm, setAlertForm] = useState({ prontuario: "", title: "", message: "", type: "INFO", broadcast: false });
   const [challengeForm, setChallengeForm] = useState({ title: "", description: "", points: 50 });
-  const [userForm, setUserForm] = useState({ prontuario: "", name: "", password: "" });
+  const [userForm, setUserForm] = useState({
+    prontuario: "",
+    name: "",
+    role: "EMPLOYEE" as "EMPLOYEE" | "ADMIN",
+    password: "",
+  });
+  const [userSearch, setUserSearch] = useState("");
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editUserForm, setEditUserForm] = useState({
+    prontuario: "",
+    name: "",
+    role: "EMPLOYEE" as "EMPLOYEE" | "ADMIN",
+    password: "",
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -125,7 +137,6 @@ export function AdminPanel() {
     setEhsForm({
       pillar: item.pillar,
       title: item.title,
-      summary: item.summary ?? "",
       body: item.body,
       order: item.order,
       images: parseEhsImages(item.images),
@@ -262,21 +273,16 @@ export function AdminPanel() {
                 className="w-full px-3 py-2 rounded-lg border"
               />
               <textarea
-                placeholder="Resumo da informação principal"
-                value={ehsForm.summary}
-                onChange={(e) => setEhsForm({ ...ehsForm, summary: e.target.value })}
-                required
-                rows={2}
-                className="w-full px-3 py-2 rounded-lg border"
-              />
-              <textarea
-                placeholder="Informação Completa"
+                placeholder="Informação completa"
                 value={ehsForm.body}
                 onChange={(e) => setEhsForm({ ...ehsForm, body: e.target.value })}
                 required
-                rows={4}
+                rows={6}
                 className="w-full px-3 py-2 rounded-lg border"
               />
+              <p className="text-xs text-slate-500 -mt-1">
+                O resumo exibido na tela pública é gerado automaticamente a partir dos primeiros caracteres deste texto.
+              </p>
               <input
                 type="number"
                 placeholder="Ordem"
@@ -641,70 +647,247 @@ export function AdminPanel() {
           </div>
         )}
 
-        {section === "users" && (
-          <div className="space-y-6">
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                try {
-                  await apiPost("/api/admin/users", userForm);
-                  setUserForm({ prontuario: "", name: "", password: "" });
-                } catch (err) {
-                  setError(err instanceof Error ? err.message : "Erro");
-                }
-              }}
-              className="bg-white rounded-xl p-4 shadow border space-y-3"
-            >
-              <h2 className="font-semibold">Novo usuário</h2>
-              <input
-                placeholder="Prontuário"
-                value={userForm.prontuario}
-                onChange={(e) => setUserForm({ ...userForm, prontuario: e.target.value })}
-                required
-                className="w-full px-3 py-2 rounded-lg border"
-              />
-              <input
-                placeholder="Nome"
-                value={userForm.name}
-                onChange={(e) => setUserForm({ ...userForm, name: e.target.value })}
-                required
-                className="w-full px-3 py-2 rounded-lg border"
-              />
-              <input
-                type="password"
-                placeholder="Senha inicial"
-                value={userForm.password}
-                onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
-                required
-                className="w-full px-3 py-2 rounded-lg border"
-              />
-              <button type="submit" className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm">
-                Cadastrar funcionário
-              </button>
-            </form>
+        {section === "users" && (() => {
+          const query = userSearch.trim().toLowerCase();
+          const filteredUsers = query
+            ? users.filter(
+                (u) =>
+                  u.name.toLowerCase().includes(query) ||
+                  u.prontuario.toLowerCase().includes(query)
+              )
+            : users;
 
-            <div className="bg-white rounded-xl shadow border overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="text-left p-3">Prontuário</th>
-                    <th className="text-left p-3">Nome</th>
-                    <th className="text-left p-3">Perfil</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.map((u) => (
-                    <tr key={u.id} className="border-t">
-                      <td className="p-3">{u.prontuario}</td>
-                      <td className="p-3">{u.name}</td>
-                      <td className="p-3">{u.role === "ADMIN" ? "Admin" : "Funcionário"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          function startEditUser(user: User) {
+            setEditingUserId(user.id);
+            setEditUserForm({
+              prontuario: user.prontuario,
+              name: user.name,
+              role: user.role === "ADMIN" ? "ADMIN" : "EMPLOYEE",
+              password: "",
+            });
+            setError(null);
+            setMessage(null);
+          }
+
+          function cancelEditUser() {
+            setEditingUserId(null);
+            setEditUserForm({ prontuario: "", name: "", role: "EMPLOYEE", password: "" });
+          }
+
+          return (
+            <div className="space-y-6">
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  try {
+                    await apiPost("/api/admin/users", userForm);
+                    setUserForm({ prontuario: "", name: "", role: "EMPLOYEE", password: "" });
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Erro");
+                  }
+                }}
+                className="bg-white rounded-xl p-4 shadow border space-y-3"
+              >
+                <h2 className="font-semibold">Novo usuário</h2>
+                <input
+                  placeholder="Prontuário"
+                  value={userForm.prontuario}
+                  onChange={(e) => setUserForm({ ...userForm, prontuario: e.target.value })}
+                  required
+                  className="w-full px-3 py-2 rounded-lg border"
+                />
+                <input
+                  placeholder="Nome"
+                  value={userForm.name}
+                  onChange={(e) => setUserForm({ ...userForm, name: e.target.value })}
+                  required
+                  className="w-full px-3 py-2 rounded-lg border"
+                />
+                <select
+                  value={userForm.role}
+                  onChange={(e) =>
+                    setUserForm({
+                      ...userForm,
+                      role: e.target.value as "EMPLOYEE" | "ADMIN",
+                      password: e.target.value === "EMPLOYEE" ? "" : userForm.password,
+                    })
+                  }
+                  className="w-full px-3 py-2 rounded-lg border"
+                >
+                  <option value="EMPLOYEE">Funcionário</option>
+                  <option value="ADMIN">Administrador</option>
+                </select>
+                {userForm.role === "ADMIN" && (
+                  <input
+                    type="password"
+                    placeholder="Senha inicial (obrigatória para admin)"
+                    value={userForm.password}
+                    onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
+                    required
+                    className="w-full px-3 py-2 rounded-lg border"
+                  />
+                )}
+                <button type="submit" className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm">
+                  Cadastrar usuário
+                </button>
+              </form>
+
+              {editingUserId && (
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    try {
+                      const body: Record<string, string> = {
+                        id: editingUserId,
+                        prontuario: editUserForm.prontuario,
+                        name: editUserForm.name,
+                        role: editUserForm.role,
+                      };
+                      if (editUserForm.password) {
+                        body.password = editUserForm.password;
+                      }
+                      await apiPut("/api/admin/users", body);
+                      cancelEditUser();
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "Erro");
+                    }
+                  }}
+                  className="bg-amber-50 rounded-xl p-4 shadow border border-amber-200 space-y-3"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="font-semibold">Editar usuário</h2>
+                    <button
+                      type="button"
+                      onClick={cancelEditUser}
+                      className="text-sm text-slate-500 hover:text-slate-700"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                  <input
+                    placeholder="Prontuário"
+                    value={editUserForm.prontuario}
+                    onChange={(e) => setEditUserForm({ ...editUserForm, prontuario: e.target.value })}
+                    required
+                    className="w-full px-3 py-2 rounded-lg border bg-white"
+                  />
+                  <input
+                    placeholder="Nome"
+                    value={editUserForm.name}
+                    onChange={(e) => setEditUserForm({ ...editUserForm, name: e.target.value })}
+                    required
+                    className="w-full px-3 py-2 rounded-lg border bg-white"
+                  />
+                  <select
+                    value={editUserForm.role}
+                    onChange={(e) =>
+                      setEditUserForm({
+                        ...editUserForm,
+                        role: e.target.value as "EMPLOYEE" | "ADMIN",
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded-lg border bg-white"
+                  >
+                    <option value="EMPLOYEE">Funcionário</option>
+                    <option value="ADMIN">Administrador</option>
+                  </select>
+                  {editUserForm.role === "ADMIN" && (
+                    <>
+                      <input
+                        type="password"
+                        placeholder="Nova senha (deixe em branco para manter a atual)"
+                        value={editUserForm.password}
+                        onChange={(e) => setEditUserForm({ ...editUserForm, password: e.target.value })}
+                        className="w-full px-3 py-2 rounded-lg border bg-white"
+                      />
+                      <p className="text-xs text-slate-500 -mt-1">
+                        Preencha para alterar a senha deste administrador.
+                      </p>
+                    </>
+                  )}
+                  <button type="submit" className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm">
+                    Salvar alterações
+                  </button>
+                </form>
+              )}
+
+              <div className="bg-white rounded-xl shadow border overflow-hidden">
+                <div className="p-3 border-b bg-slate-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <p className="text-sm text-slate-600">
+                    {filteredUsers.length} de {users.length} usuário(s)
+                  </p>
+                  <input
+                    type="search"
+                    placeholder="Buscar por nome ou prontuário..."
+                    value={userSearch}
+                    onChange={(e) => setUserSearch(e.target.value)}
+                    className="w-full sm:w-72 px-3 py-2 rounded-lg border text-sm"
+                  />
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="text-left p-3">Prontuário</th>
+                        <th className="text-left p-3">Nome</th>
+                        <th className="text-left p-3">Perfil</th>
+                        <th className="p-3"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredUsers.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="p-6 text-center text-slate-500">
+                            Nenhum usuário encontrado.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredUsers.map((u) => (
+                          <tr
+                            key={u.id}
+                            className={`border-t ${editingUserId === u.id ? "bg-amber-50" : ""}`}
+                          >
+                            <td className="p-3 font-mono">{u.prontuario}</td>
+                            <td className="p-3">{u.name}</td>
+                            <td className="p-3">
+                              <span
+                                className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
+                                  u.role === "ADMIN"
+                                    ? "bg-violet-100 text-violet-800"
+                                    : "bg-slate-100 text-slate-700"
+                                }`}
+                              >
+                                {u.role === "ADMIN" ? "Admin" : "Funcionário"}
+                              </span>
+                            </td>
+                            <td className="p-3 text-right space-x-3 whitespace-nowrap">
+                              <button
+                                type="button"
+                                onClick={() => startEditUser(u)}
+                                className="text-slate-700 text-xs hover:underline"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  apiDelete(`/api/admin/users?id=${u.id}`).catch((e) => setError(e.message))
+                                }
+                                className="text-red-600 text-xs hover:underline"
+                              >
+                                Excluir
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </main>
     </div>
   );

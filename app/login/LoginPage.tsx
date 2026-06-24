@@ -12,6 +12,7 @@ export default function LoginPage() {
 
   const [prontuario, setProntuario] = useState("");
   const [password, setPassword] = useState("");
+  const [requiresPassword, setRequiresPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -24,12 +25,18 @@ export default function LoginPage() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prontuario, password }),
+        body: JSON.stringify({
+          prontuario,
+          password: requiresPassword ? password : undefined,
+        }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
+        if (data.requiresPassword) {
+          setRequiresPassword(true);
+        }
         setError(data.error || "Erro ao entrar.");
         return;
       }
@@ -61,7 +68,7 @@ export default function LoginPage() {
 
           <h1 className="text-2xl font-bold text-slate-800 mb-1">Entrar</h1>
           <p className="text-slate-500 text-sm mb-6">
-            Use seu prontuário e senha para acessar a área do funcionário.
+            Informe seu prontuário para acessar o portal. Administradores também devem informar a senha.
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -73,29 +80,39 @@ export default function LoginPage() {
                 id="prontuario"
                 type="text"
                 value={prontuario}
-                onChange={(e) => setProntuario(e.target.value)}
+                onChange={(e) => {
+                  setProntuario(e.target.value);
+                  if (requiresPassword) {
+                    setRequiresPassword(false);
+                    setPassword("");
+                  }
+                }}
                 required
                 autoComplete="username"
                 className="w-full px-4 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400"
-                placeholder="Ex: 12345"
+                placeholder="Ex: 289426"
               />
             </div>
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1">
-                Senha
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-                className="w-full px-4 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400"
-                placeholder="••••••"
-              />
-            </div>
+            {requiresPassword && (
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1">
+                  Senha
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoFocus
+                  autoComplete="current-password"
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400"
+                  placeholder="••••••"
+                />
+                <p className="text-xs text-slate-500 mt-1">Conta de administrador — senha obrigatória.</p>
+              </div>
+            )}
 
             {error && (
               <p className="text-red-600 text-sm bg-red-50 px-3 py-2 rounded-lg">{error}</p>
@@ -106,19 +123,13 @@ export default function LoginPage() {
               disabled={loading}
               className="w-full py-3 rounded-xl bg-slate-800 text-white font-medium hover:bg-slate-700 disabled:opacity-60 transition-colors"
             >
-              {loading ? "Entrando..." : "Entrar"}
+              {loading ? "Entrando..." : requiresPassword ? "Entrar com senha" : "Entrar"}
             </button>
           </form>
 
           <p className="mt-6 text-xs text-slate-400 text-center italic">
-            Biometria em breve — protótipo usa senha
+            Biometria em breve
           </p>
-
-          <div className="mt-4 p-3 bg-slate-50 rounded-lg text-xs text-slate-500">
-            <p className="font-medium mb-1">Contas de teste:</p>
-            <p>Funcionário: 12345 / 123456</p>
-            <p>Admin: admin / admin123</p>
-          </div>
         </div>
       </div>
     </div>

@@ -7,11 +7,8 @@ export async function POST(request: NextRequest) {
   try {
     const { prontuario, password } = await request.json();
 
-    if (!prontuario || !password) {
-      return NextResponse.json(
-        { error: "Prontuário e senha são obrigatórios." },
-        { status: 400 }
-      );
+    if (!prontuario?.trim()) {
+      return NextResponse.json({ error: "Prontuário é obrigatório." }, { status: 400 });
     }
 
     const user = await prisma.user.findUnique({
@@ -20,17 +17,33 @@ export async function POST(request: NextRequest) {
 
     if (!user) {
       return NextResponse.json(
-        { error: "Prontuário ou senha incorretos." },
+        { error: "Prontuário não encontrado." },
         { status: 401 }
       );
     }
 
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) {
-      return NextResponse.json(
-        { error: "Prontuário ou senha incorretos." },
-        { status: 401 }
-      );
+    if (user.role === "ADMIN") {
+      if (!password) {
+        return NextResponse.json(
+          { error: "Senha é obrigatória para administradores.", requiresPassword: true },
+          { status: 401 }
+        );
+      }
+
+      if (!user.passwordHash) {
+        return NextResponse.json(
+          { error: "Conta de administrador sem senha configurada. Contate outro administrador." },
+          { status: 401 }
+        );
+      }
+
+      const valid = await bcrypt.compare(password, user.passwordHash);
+      if (!valid) {
+        return NextResponse.json(
+          { error: "Senha incorreta.", requiresPassword: true },
+          { status: 401 }
+        );
+      }
     }
 
     const token = await createSession({

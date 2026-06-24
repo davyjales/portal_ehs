@@ -2,17 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin, forbidden, badRequest, notFound } from "@/lib/api-helpers";
 import { pillarFromKey } from "@/lib/ehs";
+import { truncateSummary } from "@/lib/quiz";
 
 function parseEhsPayload(body: Record<string, unknown>) {
-  const { pillar, title, summary, body: fullBody, order, images, coverIndex } = body;
+  const { pillar, title, body: fullBody, order, images, coverIndex } = body;
   const validPillar = pillarFromKey(pillar as string);
+  const trimmedBody = String(fullBody ?? "").trim();
 
-  if (
-    !validPillar ||
-    !String(title ?? "").trim() ||
-    !String(summary ?? "").trim() ||
-    !String(fullBody ?? "").trim()
-  ) {
+  if (!validPillar || !String(title ?? "").trim() || !trimmedBody) {
     return { error: badRequest("Preencha todos os campos obrigatórios.") };
   }
 
@@ -24,8 +21,8 @@ function parseEhsPayload(body: Record<string, unknown>) {
     data: {
       pillar: validPillar,
       title: String(title).trim(),
-      summary: String(summary).trim(),
-      body: String(fullBody).trim(),
+      summary: truncateSummary(trimmedBody),
+      body: trimmedBody,
       order: Number(order) || 0,
       images: JSON.stringify(imageList),
       coverIndex: Math.max(
