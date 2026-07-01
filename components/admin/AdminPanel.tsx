@@ -9,7 +9,13 @@ import {
   type ThemeBackgrounds,
 } from "@/lib/theme-settings";
 
-type User = { id: string; prontuario: string; name: string; role: string };
+type User = {
+  id: string;
+  prontuario: string;
+  name: string;
+  role: string;
+  biometricCredential?: { id: string } | null;
+};
 type EHSContent = {
   id: string;
   pillar: string;
@@ -1085,13 +1091,14 @@ export function AdminPanel() {
                         <th className="text-left p-3">Prontuário</th>
                         <th className="text-left p-3">Nome</th>
                         <th className="text-left p-3">Perfil</th>
+                        <th className="text-left p-3">Biometria</th>
                         <th className="p-3"></th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredUsers.length === 0 ? (
                         <tr>
-                          <td colSpan={4} className="p-6 text-center text-slate-500">
+                          <td colSpan={5} className="p-6 text-center text-slate-500">
                             Nenhum usuário encontrado.
                           </td>
                         </tr>
@@ -1114,6 +1121,17 @@ export function AdminPanel() {
                                 {u.role === "ADMIN" ? "Admin" : "Funcionário"}
                               </span>
                             </td>
+                            <td className="p-3">
+                              {u.biometricCredential ? (
+                                <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800">
+                                  Cadastrada
+                                </span>
+                              ) : (
+                                <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
+                                  Pendente
+                                </span>
+                              )}
+                            </td>
                             <td className="p-3 text-right space-x-3 whitespace-nowrap">
                               <button
                                 type="button"
@@ -1122,6 +1140,19 @@ export function AdminPanel() {
                               >
                                 Editar
                               </button>
+                              {u.biometricCredential && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    apiDelete(`/api/admin/biometric?userId=${u.id}`)
+                                      .then(() => setMessage("Biometria removida."))
+                                      .catch((e) => setError(e.message))
+                                  }
+                                  className="text-amber-700 text-xs hover:underline"
+                                >
+                                  Remover bio
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() =>

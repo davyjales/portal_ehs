@@ -18,7 +18,13 @@ export async function GET(request: NextRequest) {
     }),
     prisma.challenge.findMany({ orderBy: { weekStart: "desc" } }),
     prisma.user.findMany({
-      select: { id: true, prontuario: true, name: true, role: true },
+      select: {
+        id: true,
+        prontuario: true,
+        name: true,
+        role: true,
+        biometricCredential: { select: { id: true } },
+      },
       orderBy: { name: "asc" },
     }),
   ]);

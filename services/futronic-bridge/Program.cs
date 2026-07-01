@@ -1,0 +1,159 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using FutronicBridge.Services;
+
+var demoMode = args.Contains("--demo") ||
+               string.Equals(Environment.GetEnvironmentVariable("FUTRONIC_BRIDGE_DEMO"), "1", StringComparison.Ordinal);
+
+var port = int.TryParse(Environment.GetEnvironmentVariable("FUTRONIC_BRIDGE_PORT"), out var parsedPort)
+    ? parsedPort
+    : 8080;
+
+var allowedOrigins = (Environment.GetEnvironmentVariable("FUTRONIC_BRIDGE_ORIGINS") ?? "http://localhost:3000")
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+IFingerprintService fingerprintService = demoMode
+    ? new DemoFingerprintService()
+    : new FutronicFingerprintService();
+
+var builder = WebApplication.CreateBuilder(args);
+builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
+
+var app = builder.Build();
+
+var jsonOptions = new JsonSerializerOptions
+{
+    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+};
+
+app.Use(async (context, next) =>
+{
+    var origin = context.Request.Headers.Origin.ToString();
+    if (!string.IsNullOrEmpty(origin) && allowedOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase))
+    {
+        context.Response.Headers.AccessControlAllowOrigin = origin;
+        context.Response.Headers.AccessControlAllowMethods = "GET, POST, OPTIONS";
+        context.Response.Headers.AccessControlAllowHeaders = "Content-Type";
+    }
+
+    if (HttpMethods.IsOptions(context.Request.Method))
+    {
+        context.Response.StatusCode = StatusCodes.Status204NoContent;
+        return;
+    }
+
+    await next();
+});
+
+app.MapGet("/health", () =>
+{
+    return Results.Json(new
+    {
+        ok = true,
+        demoMode = fingerprintService.IsDemoMode,
+        deviceConnected = fingerprintService.IsDeviceConnected,
+    }, jsonOptions);
+});
+
+app.MapGet("/scan/single", (HttpContext context) =>
+{
+    var timeoutMs = int.TryParse(context.Request.Query["timeoutMs"], out var timeout) ? timeout : 15000;
+
+    if (fingerprintService is DemoFingerprintService demo &&
+        int.TryParse(context.Request.Query["profile"], out var profile))
+    {
+        var result = demo.ScanSingleForProfile(profile);
+        return Results.Json(new
+        {
+            success = result.Success,
+            templateBase64 = result.TemplateBase64,
+            imageBase64 = result.ImageBase64,
+            message = result.Message,
+            demoProfile = profile,
+        }, jsonOptions);
+    }
+
+    var scan = fingerprintService.ScanSingle(timeoutMs);
+    return Results.Json(new
+    {
+        success = scan.Success,
+        templateBase64 = scan.TemplateBase64,
+        imageBase64 = scan.ImageBase64,
+        message = scan.Message,
+    }, jsonOptions);
+});
+
+app.MapPost("/verify", async (HttpRequest request) =>
+{
+    var body = await JsonSerializer.DeserializeAsync<VerifyRequest>(request.Body, jsonOptions);
+    if (body?.TemplateBase64 == null || body.StoredTemplateBase64 == null)
+    {
+        return Results.Json(new { success = false, verified = false, message = "Templates obrigatórios." }, jsonOptions);
+    }
+
+    var result = fingerprintService.Verify(body.TemplateBase64, body.StoredTemplateBase64);
+    return Results.Json(new
+    {
+        success = result.Success,
+        verified = result.Matched,
+        score = result.Score,
+        message = result.Message,
+    }, jsonOptions);
+});
+
+app.MapPost("/identify", async (HttpRequest request) =>
+{
+    var body = await JsonSerializer.DeserializeAsync<IdentifyRequest>(request.Body, jsonOptions);
+    if (body?.Templates == null || body.Templates.Count == 0)
+    {
+        return Results.Json(new { success = false, matched = false, message = "Nenhum template informado." }, jsonOptions);
+    }
+
+    if (string.IsNullOrWhiteSpace(body.LiveTemplateBase64))
+    {
+        var scan = fingerprintService.ScanSingle(body.TimeoutMs ?? 15000);
+        if (!scan.Success || scan.TemplateBase64 == null)
+        {
+            return Results.Json(new { success = false, matched = false, message = scan.Message }, jsonOptions);
+        }
+
+        body.LiveTemplateBase64 = scan.TemplateBase64;
+    }
+
+    var templates = body.Templates
+        .Where(t => !string.IsNullOrWhiteSpace(t.UserId) && !string.IsNullOrWhiteSpace(t.TemplateBase64))
+        .Select(t => (t.UserId!, t.TemplateBase64!));
+
+    var result = fingerprintService.Identify(body.LiveTemplateBase64, templates);
+    return Results.Json(new
+    {
+        success = result.Success,
+        matched = result.Matched,
+        userId = result.UserId,
+        score = result.Score,
+        message = result.Message,
+    }, jsonOptions);
+});
+
+Console.WriteLine($"Futronic Bridge listening on http://127.0.0.1:{port} (demoMode={demoMode})");
+app.Run();
+
+internal sealed class VerifyRequest
+{
+    public string? TemplateBase64 { get; set; }
+    public string? StoredTemplateBase64 { get; set; }
+}
+
+internal sealed class IdentifyRequest
+{
+    public string? LiveTemplateBase64 { get; set; }
+    public int? TimeoutMs { get; set; }
+    public List<TemplateEntry> Templates { get; set; } = [];
+}
+
+internal sealed class TemplateEntry
+{
+    public string? UserId { get; set; }
+    public string? TemplateBase64 { get; set; }
+}

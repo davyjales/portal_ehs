@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { createSession, sessionCookieOptions, type Role } from "@/lib/auth";
+import { establishUserSession, userHasBiometric } from "@/lib/session-establish";
+import type { Role } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,7 +23,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (user.role === "ADMIN") {
+    const hasBiometric = await userHasBiometric(user.id);
+
+    if (user.role === "ADMIN" && !hasBiometric) {
       if (!password) {
         return NextResponse.json(
           { error: "Senha é obrigatória para administradores.", requiresPassword: true },
@@ -46,33 +49,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const token = await createSession({
+    if (!hasBiometric) {
+      return NextResponse.json(
+        {
+          error: "Cadastre sua biometria para continuar.",
+          requiresBiometricRegistration: true,
+          userId: user.id,
+          name: user.name,
+          role: user.role,
+        },
+        { status: 403 }
+      );
+    }
+
+    return establishUserSession({
       id: user.id,
       prontuario: user.prontuario,
       name: user.name,
       role: user.role as Role,
     });
-
-    await prisma.$transaction([
-      prisma.userQuizSession.deleteMany({ where: { userId: user.id } }),
-      prisma.userQuizAssignment.deleteMany({ where: { userId: user.id } }),
-    ]);
-
-    const response = NextResponse.json({
-      role: user.role,
-      name: user.name,
-    });
-
-    const cookie = sessionCookieOptions(token);
-    response.cookies.set(cookie.name, cookie.value, {
-      httpOnly: cookie.httpOnly,
-      secure: cookie.secure,
-      sameSite: cookie.sameSite,
-      path: cookie.path,
-      maxAge: cookie.maxAge,
-    });
-
-    return response;
   } catch {
     return NextResponse.json({ error: "Erro interno do servidor." }, { status: 500 });
   }

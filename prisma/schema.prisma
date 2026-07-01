@@ -8,17 +8,29 @@ datasource db {
 }
 
 model User {
-  id           String        @id @default(cuid())
-  prontuario   String        @unique
-  passwordHash String?
-  name         String
-  role         String        @default("EMPLOYEE")
-  createdAt    DateTime      @default(now())
-  pendencias   Pendencia[]
-  alertas      Alerta[]
-  certificados Certificado[]
-  solicitacoes Solicitacao[]
-  scores       UserScore[]
+  id                  String               @id @default(cuid())
+  prontuario          String               @unique
+  passwordHash        String?
+  name                String
+  role                String               @default("EMPLOYEE")
+  createdAt           DateTime             @default(now())
+  pendencias          Pendencia[]
+  alertas             Alerta[]
+  certificados        Certificado[]
+  solicitacoes        Solicitacao[]
+  scores              UserScore[]
+  biometricCredential BiometricCredential?
+}
+
+model BiometricCredential {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  templateEnc     String   @db.LongText
+  templateVersion String   @default("futronic-4.2")
+  fingerLabel     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 model EHSContent {
