@@ -10,6 +10,8 @@ import {
   SOLICITACAO_STATUS_LABELS,
 } from "@/lib/ehs";
 import { getQuizPageToken } from "@/lib/quiz-client";
+import type { QuizReviewItem } from "@/lib/quiz";
+import { touchKeyboardProps } from "@/lib/touch-keyboard";
 import type { TabId } from "./AppHeader";
 
 type Pendencia = {
@@ -59,6 +61,10 @@ type Challenge = {
   inProgress: boolean;
   questions: QuizQuestion[];
   startedAt: string | null;
+  earnedPoints?: number;
+  correctCount?: number;
+  totalQuestions?: number;
+  review?: QuizReviewItem[];
 };
 
 function quizAnswersKey(challengeId: string, pageToken: string) {
@@ -110,6 +116,64 @@ function LoadingState() {
 function ErrorState({ message }: { message: string }) {
   return (
     <p className="text-red-600 bg-red-50 px-4 py-3 rounded-lg text-sm">{message}</p>
+  );
+}
+
+function QuizReviewPanel({
+  review,
+  earnedPoints,
+  correctCount,
+  totalQuestions,
+}: {
+  review: QuizReviewItem[];
+  earnedPoints: number;
+  correctCount: number;
+  totalQuestions: number;
+}) {
+  return (
+    <div className="mt-4 space-y-4">
+      <div className="rounded-lg bg-purple-50 border border-purple-200 px-4 py-3">
+        <p className="text-sm font-semibold text-purple-900">Resultado do quiz</p>
+        <p className="text-lg font-bold text-purple-800 mt-1">
+          {earnedPoints} pontos · {correctCount}/{totalQuestions} acertos
+        </p>
+      </div>
+
+      <div className="space-y-5">
+        {review.map((item, qi) => (
+          <div key={item.questionId} className="border border-slate-100 rounded-lg p-4">
+            <p className="text-sm font-medium text-slate-800 mb-3">
+              {qi + 1}. {item.question}
+            </p>
+            <div className="space-y-2">
+              {item.options.map((opt, oi) => {
+                const isCorrect = oi === item.correctAnswer;
+
+                return (
+                  <div
+                    key={oi}
+                    className={`flex items-center gap-2 text-sm rounded-lg px-3 py-2 ${
+                      isCorrect
+                        ? "bg-green-50 text-green-900 border border-green-200"
+                        : "bg-red-50 text-red-900 border border-red-200"
+                    }`}
+                  >
+                    <span
+                      className={`shrink-0 w-6 h-6 rounded-full text-white flex items-center justify-center text-xs font-bold ${
+                        isCorrect ? "bg-green-500" : "bg-red-500"
+                      }`}
+                    >
+                      {isCorrect ? "✔️" : "✕"}
+                    </span>
+                    <span>{opt}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -434,6 +498,7 @@ function SolicitacoesTab() {
               rows={4}
               className="w-full px-3 py-2 rounded-lg border border-slate-200"
               placeholder="Descreva sua solicitação..."
+              {...touchKeyboardProps()}
             />
           </div>
           {error && <ErrorState message={error} />}
@@ -576,8 +641,21 @@ function OneUpTab() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao submeter.");
       clearSavedAnswers(challenge.id, getQuizPageToken());
+      setChallenge({
+        ...challenge,
+        completed: true,
+        inProgress: false,
+        questions: [],
+        earnedPoints: data.earnedPoints,
+        correctCount: data.correctCount,
+        totalQuestions: data.totalQuestions,
+        review: data.review ?? [],
+      });
       setSuccess(data.message);
-      load();
+      setAnswers([]);
+      fetch("/api/ranking")
+        .then((r) => r.ok && r.json())
+        .then((r) => r && setRanking(r));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro desconhecido.");
     } finally {
@@ -615,9 +693,22 @@ function OneUpTab() {
           {challenge.completed ? (
             <>
               <p className="text-sm text-slate-600 mt-2">{challenge.description}</p>
-              <p className="mt-4 text-green-700 bg-green-50 px-3 py-2 rounded-lg text-sm">
-                ✓ Desafio concluído nesta semana!
-              </p>
+              {success && (
+                <p className="mt-4 text-green-700 bg-green-50 px-3 py-2 rounded-lg text-sm">{success}</p>
+              )}
+              {!success && (
+                <p className="mt-4 text-green-700 bg-green-50 px-3 py-2 rounded-lg text-sm">
+                  ✓ Desafio concluído nesta semana!
+                </p>
+              )}
+              {challenge.review && challenge.review.length > 0 && (
+                <QuizReviewPanel
+                  review={challenge.review}
+                  earnedPoints={challenge.earnedPoints ?? 0}
+                  correctCount={challenge.correctCount ?? 0}
+                  totalQuestions={challenge.totalQuestions ?? challenge.review.length}
+                />
+              )}
             </>
           ) : inProgress ? (
             <>
@@ -676,8 +767,8 @@ function OneUpTab() {
                 </p>
                 <ul className="list-disc pl-5 space-y-1">
                   <li>São 3 perguntas sorteadas do banco de questões EHS.</li>
-                  <li>É necessário acertar pelo menos 2 para pontuar.</li>
                   <li>Os pontos são proporcionais ao número de acertos (até {challenge.points} pts).</li>
+                  <li>Ao concluir, você verá sua pontuação e o gabarito de cada pergunta.</li>
                   <li>O cronômetro inicia ao clicar em <strong>Iniciar Quiz</strong> e não pausa ao trocar de aba.</li>
                   <li>Em caso de empate no ranking mensal, vence quem respondeu mais rápido.</li>
                   <li>Recarregar a página ou entrar novamente gera novas perguntas e reinicia o tempo.</li>

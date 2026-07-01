@@ -14,6 +14,10 @@ import {
 import { ThemeProvider } from "./ThemeProvider";
 import { ThemeBackground } from "./ThemeBackground";
 import { AmbitPanel } from "./AmbitPanel";
+import {
+  DEFAULT_THEME_BACKGROUNDS,
+  type ThemeBackgrounds,
+} from "@/lib/theme-settings";
 
 type Point = { x: number; y: number };
 
@@ -242,7 +246,19 @@ export function EHSSelector({
   const [origin, setOrigin] = useState<Point | null>(
     compact ? { x: 80, y: 140 } : null
   );
+  const [backgrounds, setBackgrounds] = useState<ThemeBackgrounds>(DEFAULT_THEME_BACKGROUNDS);
   const stackRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetch("/api/theme")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: ThemeBackgrounds | null) => {
+        if (data) setBackgrounds(data);
+      })
+      .catch(() => {
+        /* keep defaults */
+      });
+  }, []);
 
   const handleSelect = useCallback((pillar: PillarKey, clickOrigin: Point) => {
     setOrigin(clickOrigin);
@@ -286,7 +302,7 @@ export function EHSSelector({
 
   return (
     <ThemeProvider selected={selected} onSelect={setSelected}>
-      <ThemeBackground selected={selected} origin={origin} />
+      <ThemeBackground selected={selected} origin={origin} backgrounds={backgrounds} />
 
       <LayoutGroup>
         <div

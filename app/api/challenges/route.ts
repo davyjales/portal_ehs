@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, unauthorized, badRequest } from "@/lib/api-helpers";
 import {
+  buildQuizReview,
   calculateQuizPoints,
-  QUIZ_PASS_THRESHOLD,
+  type QuizReviewItem,
 } from "@/lib/quiz";
 import {
   assignmentsToQuestions,
@@ -12,6 +13,16 @@ import {
   getQuizSession,
   resolveQuizSession,
 } from "@/lib/quiz-assignments";
+
+function parseReviewJson(raw: string | null | undefined): QuizReviewItem[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 export async function GET(request: NextRequest) {
   const user = await requireAuth(request);
@@ -47,6 +58,10 @@ export async function GET(request: NextRequest) {
       inProgress: false,
       questions: [],
       startedAt: null,
+      earnedPoints: existing.points,
+      correctCount: existing.correctCount,
+      totalQuestions: parseReviewJson(existing.reviewJson).length || undefined,
+      review: parseReviewJson(existing.reviewJson),
     });
   }
 
@@ -197,10 +212,7 @@ async function handleSubmit(
     }
   }
 
-  if (correctCount < QUIZ_PASS_THRESHOLD) {
-    return badRequest("Respostas insuficientes. Tente novamente!");
-  }
-
+  const review = buildQuizReview(assignedQuestions, answers);
   const points = calculateQuizPoints(
     correctCount,
     assignedQuestions.length,
@@ -216,6 +228,7 @@ async function handleSubmit(
         points,
         correctCount,
         responseTimeMs,
+        reviewJson: JSON.stringify(review),
       },
     }),
     prisma.userQuizAssignment.deleteMany({
@@ -226,7 +239,17 @@ async function handleSubmit(
     }),
   ]);
 
+  const total = assignedQuestions.length;
+  const message =
+    correctCount === total
+      ? `Parabéns! Você ganhou ${points} pontos (${correctCount}/${total} acertos)!`
+      : `Quiz concluído! Você ganhou ${points} pontos (${correctCount}/${total} acertos).`;
+
   return NextResponse.json({
-    message: `Parabéns! Você ganhou ${points} pontos (${correctCount}/${assignedQuestions.length} acertos)!`,
+    message,
+    earnedPoints: points,
+    correctCount,
+    totalQuestions: total,
+    review,
   });
 }

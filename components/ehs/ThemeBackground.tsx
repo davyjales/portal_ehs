@@ -4,25 +4,28 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   PILLAR_CONFIG,
   NEUTRAL_BG,
-  TEAM_BG_IMAGE,
   TEAM_BG_OVERLAY,
   THEME_TRANSITION_MS,
   type PillarKey,
 } from "@/lib/ehs";
+import { DEFAULT_THEME_BACKGROUNDS, type ThemeBackgrounds } from "@/lib/theme-settings";
 
 type Point = { x: number; y: number };
 
 export function ThemeBackground({
   selected,
   origin,
+  backgrounds = DEFAULT_THEME_BACKGROUNDS,
 }: {
   selected: PillarKey | null;
   origin: Point | null;
+  backgrounds?: ThemeBackgrounds;
 }) {
   const config = selected ? PILLAR_CONFIG[selected] : null;
   const originX = origin?.x ?? 0;
   const originY = origin?.y ?? 0;
   const isHealth = selected === "HEALTH";
+  const pillarBg = selected ? backgrounds[selected] : null;
 
   return (
     <div className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
@@ -32,14 +35,14 @@ export function ThemeBackground({
         <div className="absolute inset-0">
           <div
             className="absolute inset-0 bg-cover bg-center scale-105"
-            style={{ backgroundImage: `url(${TEAM_BG_IMAGE})` }}
+            style={{ backgroundImage: `url(${backgrounds.team})` }}
           />
           <div className="absolute inset-0" style={{ background: TEAM_BG_OVERLAY }} />
         </div>
       )}
 
       <AnimatePresence mode="wait">
-        {config && selected && (
+        {config && selected && pillarBg && (
           <motion.div
             key={selected}
             className="absolute inset-0"
@@ -50,7 +53,7 @@ export function ThemeBackground({
           >
             <div
               className="absolute inset-0 bg-cover bg-center"
-              style={{ backgroundImage: `url(${config.bgImage})` }}
+              style={{ backgroundImage: `url(${pillarBg})` }}
             />
             <div
               className="absolute inset-0"

@@ -51,7 +51,32 @@ export function truncateSummary(text: string, max = 120): string {
 }
 
 export const QUIZ_QUESTIONS_PER_CHALLENGE = 3;
-export const QUIZ_PASS_THRESHOLD = 2;
+
+export type QuizReviewItem = {
+  questionId: string;
+  question: string;
+  options: string[];
+  userAnswer: number;
+  correctAnswer: number;
+};
+
+export function buildQuizReview(
+  assignedQuestions: {
+    id: string;
+    question: string;
+    options: string | string[];
+    correct: number;
+  }[],
+  answers: number[]
+): QuizReviewItem[] {
+  return assignedQuestions.map((q, i) => ({
+    questionId: q.id,
+    question: q.question,
+    options: Array.isArray(q.options) ? q.options : (JSON.parse(q.options) as string[]),
+    userAnswer: answers[i],
+    correctAnswer: q.correct,
+  }));
+}
 
 export function calculateQuizPoints(
   correctCount: number,

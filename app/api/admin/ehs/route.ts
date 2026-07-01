@@ -5,7 +5,7 @@ import { pillarFromKey } from "@/lib/ehs";
 import { truncateSummary } from "@/lib/quiz";
 
 function parseEhsPayload(body: Record<string, unknown>) {
-  const { pillar, title, body: fullBody, order, images, coverIndex } = body;
+  const { pillar, title, body: fullBody, order, images, videos, coverIndex } = body;
   const validPillar = pillarFromKey(pillar as string);
   const trimmedBody = String(fullBody ?? "").trim();
 
@@ -16,6 +16,10 @@ function parseEhsPayload(body: Record<string, unknown>) {
   const imageList = Array.isArray(images)
     ? images.filter((v): v is string => typeof v === "string")
     : [];
+  const videoList = Array.isArray(videos)
+    ? videos.filter((v): v is string => typeof v === "string")
+    : [];
+  const mediaCount = imageList.length + videoList.length;
 
   return {
     data: {
@@ -25,9 +29,10 @@ function parseEhsPayload(body: Record<string, unknown>) {
       body: trimmedBody,
       order: Number(order) || 0,
       images: JSON.stringify(imageList),
+      videos: JSON.stringify(videoList),
       coverIndex: Math.max(
         0,
-        Math.min(Number(coverIndex) || 0, Math.max(0, imageList.length - 1))
+        Math.min(Number(coverIndex) || 0, Math.max(0, mediaCount - 1))
       ),
     },
   };

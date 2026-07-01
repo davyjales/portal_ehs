@@ -68,6 +68,34 @@ export function parseEHSImages(raw: string | null | undefined): string[] {
   }
 }
 
+export function parseEHSVideos(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export type EHSMediaItem =
+  | { type: "image"; src: string }
+  | { type: "video"; src: string };
+
+export function buildEHSMedia(
+  imagesRaw: string | null | undefined,
+  videosRaw: string | null | undefined,
+  coverIndex = 0
+): EHSMediaItem[] {
+  const images = parseEHSImages(imagesRaw).map((src) => ({ type: "image" as const, src }));
+  const videos = parseEHSVideos(videosRaw).map((src) => ({ type: "video" as const, src }));
+  const media = [...images, ...videos];
+  if (media.length <= 1) return media;
+  const cover = Math.max(0, Math.min(coverIndex, media.length - 1));
+  if (cover === 0) return media;
+  return [media[cover], ...media.filter((_, i) => i !== cover)];
+}
+
 export function pillarFromKey(key: string | null): PillarKey | null {
   if (key === "ENVIRONMENT" || key === "HEALTH" || key === "SAFETY") return key;
   return null;

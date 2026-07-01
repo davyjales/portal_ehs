@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   const items = await prisma.eHSContent.findMany({
     where: { pillar, isPublic: true },
     orderBy: { order: "asc" },
-    select: { id: true, title: true, summary: true, body: true, order: true, images: true, coverIndex: true },
+    select: { id: true, title: true, summary: true, body: true, order: true, images: true, videos: true, coverIndex: true },
   });
 
   return NextResponse.json(items);

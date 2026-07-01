@@ -30,6 +30,7 @@ model EHSContent {
   order      Int     @default(0)
   isPublic   Boolean @default(true)
   images     String  @default("[]") @db.Text
+  videos     String  @default("[]") @db.Text
   coverIndex Int     @default(0)
 }
 
@@ -94,6 +95,7 @@ model UserScore {
   points         Int
   correctCount   Int       @default(0)
   responseTimeMs Int       @default(0)
+  reviewJson     String?   @db.Text
   completedAt    DateTime  @default(now())
 
   @@unique([userId, challengeId])
@@ -126,4 +128,12 @@ model UserQuizSession {
   startedAt   DateTime @default(now())
 
   @@unique([userId, challengeId])
+}
+
+model ThemeSettings {
+  id               String @id @default("default")
+  environmentImage String
+  healthImage      String
+  safetyImage      String
+  teamImage        String
 }

@@ -4,6 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { PILLARS, PILLAR_CONFIG, formatDate } from "@/lib/ehs";
+import {
+  DEFAULT_THEME_BACKGROUNDS,
+  type ThemeBackgrounds,
+} from "@/lib/theme-settings";
 
 type User = { id: string; prontuario: string; name: string; role: string };
 type EHSContent = {
@@ -15,13 +19,14 @@ type EHSContent = {
   order: number;
   isPublic: boolean;
   images?: string;
+  videos?: string;
   coverIndex?: number;
 };
 type Pendencia = { id: string; title: string; user: { name: string; prontuario: string }; status: string; dueDate: string | null };
 type Alerta = { id: string; title: string; type: string; user: { name: string } | null };
 type Challenge = { id: string; title: string; points: number; active: boolean; weekStart: string };
 
-type AdminSection = "ehs" | "pendencias" | "alertas" | "challenges" | "users";
+type AdminSection = "ehs" | "themes" | "pendencias" | "alertas" | "challenges" | "users";
 
 const EMPTY_EHS_FORM = {
   pillar: "ENVIRONMENT",
@@ -29,6 +34,7 @@ const EMPTY_EHS_FORM = {
   body: "",
   order: 0,
   images: [] as string[],
+  videos: [] as string[],
   coverIndex: 0,
 };
 
@@ -41,6 +47,14 @@ function parseEhsImages(raw?: string): string[] {
   }
 }
 
+function parseEhsVideos(raw?: string): string[] {
+  try {
+    const parsed = JSON.parse(raw || "[]");
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
 export function AdminPanel() {
   const router = useRouter();
   const [section, setSection] = useState<AdminSection>("ehs");
@@ -54,9 +68,13 @@ export function AdminPanel() {
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [users, setUsers] = useState<User[]>([]);
 
-  const [ehsForm, setEhsForm] = useState({ ...EMPTY_EHS_FORM, images: [] as string[] });
+  const [ehsForm, setEhsForm] = useState({ ...EMPTY_EHS_FORM, images: [] as string[], videos: [] as string[] });
   const [editingEhsId, setEditingEhsId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [themeForm, setThemeForm] = useState<ThemeBackgrounds>(DEFAULT_THEME_BACKGROUNDS);
+  const [uploadingThemeKey, setUploadingThemeKey] = useState<string | null>(null);
+  const [themeLoaded, setThemeLoaded] = useState(false);
   const [pendForm, setPendForm] = useState({ prontuario: "", title: "", description: "", dueDate: "" });
   const [alertForm, setAlertForm] = useState({ prontuario: "", title: "", message: "", type: "INFO", broadcast: false });
   const [challengeForm, setChallengeForm] = useState({ title: "", description: "", points: 50 });
@@ -102,6 +120,52 @@ export function AdminPanel() {
     load();
   }, [load]);
 
+  const loadThemeSettings = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/theme");
+      if (res.status === 401 || res.status === 403) {
+        router.push("/login");
+        return;
+      }
+      if (!res.ok) throw new Error("Erro ao carregar fundos dos temas.");
+      const data: ThemeBackgrounds = await res.json();
+      setThemeForm(data);
+      setThemeLoaded(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro desconhecido.");
+    }
+  }, [router]);
+
+  useEffect(() => {
+    if (section === "themes" && !themeLoaded) {
+      loadThemeSettings();
+    }
+  }, [section, themeLoaded, loadThemeSettings]);
+
+  async function uploadThemeBackground(
+    key: keyof ThemeBackgrounds,
+    file: File
+  ) {
+    setUploadingThemeKey(key);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/admin/theme/upload", {
+        method: "POST",
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erro no upload.");
+      setThemeForm((prev) => ({ ...prev, [key]: data.path }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro no upload.");
+    } finally {
+      setUploadingThemeKey(null);
+    }
+  }
+
   async function apiPost(path: string, body: unknown) {
     setMessage(null);
     setError(null);
@@ -130,7 +194,7 @@ export function AdminPanel() {
     load();
   }
 
-  const emptyEhsForm = () => ({ ...EMPTY_EHS_FORM, images: [] as string[] });
+  const emptyEhsForm = () => ({ ...EMPTY_EHS_FORM, images: [] as string[], videos: [] as string[] });
 
   function startEditEhs(item: EHSContent) {
     setEditingEhsId(item.id);
@@ -140,6 +204,7 @@ export function AdminPanel() {
       body: item.body,
       order: item.order,
       images: parseEhsImages(item.images),
+      videos: parseEhsVideos(item.videos),
       coverIndex: item.coverIndex ?? 0,
     });
     setError(null);
@@ -173,6 +238,7 @@ export function AdminPanel() {
 
   const sections: { id: AdminSection; label: string }[] = [
     { id: "ehs", label: "Informativos E/H/S" },
+    { id: "themes", label: "Fundos E/H/S" },
     { id: "pendencias", label: "Pendências" },
     { id: "alertas", label: "Alertas" },
     { id: "challenges", label: "Desafios 1UP" },
@@ -354,13 +420,16 @@ export function AdminPanel() {
                             onClick={() =>
                               setEhsForm((prev) => {
                                 const nextImages = prev.images.filter((_, idx) => idx !== i);
-                                const nextCover =
-                                  prev.coverIndex >= nextImages.length
-                                    ? Math.max(0, nextImages.length - 1)
-                                    : prev.coverIndex > i
-                                      ? prev.coverIndex - 1
-                                      : prev.coverIndex;
-                                return { ...prev, images: nextImages, coverIndex: nextCover };
+                                const mediaCount = nextImages.length + prev.videos.length;
+                                const removedIndex = i;
+                                let nextCover = prev.coverIndex;
+                                if (removedIndex < prev.coverIndex) nextCover -= 1;
+                                else if (removedIndex === prev.coverIndex) nextCover = 0;
+                                return {
+                                  ...prev,
+                                  images: nextImages,
+                                  coverIndex: Math.max(0, Math.min(nextCover, Math.max(0, mediaCount - 1))),
+                                };
                               })
                             }
                             className="text-red-600 hover:underline"
@@ -374,9 +443,97 @@ export function AdminPanel() {
                 )}
               </div>
 
+              <div className="space-y-2 pt-1">
+                <p className="text-sm font-medium text-slate-700">Vídeos (opcional)</p>
+                <p className="text-xs text-slate-500">
+                  Adicione vídeos MP4, WebM ou MOV. Eles aparecem no post junto com as fotos.
+                </p>
+                <input
+                  type="file"
+                  accept="video/mp4,video/webm,video/quicktime"
+                  multiple
+                  disabled={uploadingVideo}
+                  onChange={async (e) => {
+                    const files = Array.from(e.target.files ?? []);
+                    if (files.length === 0) return;
+                    setUploadingVideo(true);
+                    setError(null);
+                    try {
+                      const uploaded: string[] = [];
+                      for (const file of files) {
+                        const fd = new FormData();
+                        fd.append("file", file);
+                        const res = await fetch("/api/admin/ehs/upload-video", {
+                          method: "POST",
+                          body: fd,
+                        });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.error || "Erro no upload.");
+                        uploaded.push(data.path);
+                      }
+                      setEhsForm((prev) => ({
+                        ...prev,
+                        videos: [...prev.videos, ...uploaded],
+                      }));
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "Erro no upload.");
+                    } finally {
+                      setUploadingVideo(false);
+                      e.target.value = "";
+                    }
+                  }}
+                  className="w-full text-sm"
+                />
+                {uploadingVideo && <p className="text-xs text-slate-500 animate-pulse">Enviando vídeos...</p>}
+                {ehsForm.videos.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {ehsForm.videos.map((video, vi) => {
+                      const mediaIndex = ehsForm.images.length + vi;
+                      return (
+                        <div key={video} className="relative rounded-lg border overflow-hidden bg-slate-50">
+                          <video src={video} className="w-full aspect-square object-cover bg-black" controls muted />
+                          <div className="p-2 flex items-center justify-between gap-2 text-xs">
+                            <label className="flex items-center gap-1 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="cover"
+                                checked={ehsForm.coverIndex === mediaIndex}
+                                onChange={() => setEhsForm({ ...ehsForm, coverIndex: mediaIndex })}
+                              />
+                              Capa
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEhsForm((prev) => {
+                                  const nextVideos = prev.videos.filter((_, idx) => idx !== vi);
+                                  const mediaCount = prev.images.length + nextVideos.length;
+                                  const removedIndex = prev.images.length + vi;
+                                  let nextCover = prev.coverIndex;
+                                  if (removedIndex < prev.coverIndex) nextCover -= 1;
+                                  else if (removedIndex === prev.coverIndex) nextCover = 0;
+                                  return {
+                                    ...prev,
+                                    videos: nextVideos,
+                                    coverIndex: Math.max(0, Math.min(nextCover, Math.max(0, mediaCount - 1))),
+                                  };
+                                })
+                              }
+                              className="text-red-600 hover:underline"
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
               <button
                 type="submit"
-                disabled={uploading}
+                disabled={uploading || uploadingVideo}
                 className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm disabled:opacity-50"
               >
                 {editingEhsId ? "Salvar alterações" : "Criar informativo"}
@@ -389,20 +546,25 @@ export function AdminPanel() {
                   <tr>
                     <th className="text-left p-3">Âmbito</th>
                     <th className="text-left p-3">Título</th>
-                    <th className="text-left p-3">Fotos</th>
+                    <th className="text-left p-3">Mídia</th>
                     <th className="text-left p-3">Ordem</th>
                     <th className="p-3"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {ehsItems.map((item) => {
-                    let photoCount = 0;
-                    try {
-                      const parsed = JSON.parse(item.images || "[]");
-                      photoCount = Array.isArray(parsed) ? parsed.length : 0;
-                    } catch {
-                      photoCount = 0;
-                    }
+                    const photoCount = parseEhsImages(item.images).length;
+                    const videoCount = parseEhsVideos(item.videos).length;
+                    const mediaCount = photoCount + videoCount;
+                    const mediaLabel =
+                      mediaCount === 0
+                        ? "—"
+                        : [
+                            photoCount > 0 ? `${photoCount} foto(s)` : null,
+                            videoCount > 0 ? `${videoCount} vídeo(s)` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ");
                     return (
                       <tr
                         key={item.id}
@@ -412,7 +574,7 @@ export function AdminPanel() {
                           {PILLAR_CONFIG[item.pillar as keyof typeof PILLAR_CONFIG]?.label}
                         </td>
                         <td className="p-3">{item.title}</td>
-                        <td className="p-3">{photoCount > 0 ? `${photoCount} foto(s)` : "—"}</td>
+                        <td className="p-3">{mediaLabel}</td>
                         <td className="p-3">{item.order}</td>
                         <td className="p-3 text-right space-x-3">
                           <button
@@ -436,6 +598,98 @@ export function AdminPanel() {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {section === "themes" && (
+          <div className="space-y-6">
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                try {
+                  await apiPut("/api/admin/theme", themeForm);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Erro");
+                }
+              }}
+              className="bg-white rounded-xl p-4 shadow border space-y-4"
+            >
+              <div>
+                <h2 className="font-semibold text-slate-800">Fundos dos temas informativos</h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  Altere as imagens de fundo exibidas na tela pública ao selecionar cada âmbito E/H/S
+                  e na tela inicial (antes da seleção).
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {(
+                  [
+                    { key: "team" as const, label: "Tela inicial (equipe EHS)" },
+                    ...PILLARS.map((pillar) => ({
+                      key: pillar,
+                      label: PILLAR_CONFIG[pillar].label,
+                    })),
+                  ] as { key: keyof ThemeBackgrounds; label: string }[]
+                ).map(({ key, label }) => (
+                  <div key={key} className="rounded-lg border overflow-hidden bg-slate-50">
+                    <div
+                      className="aspect-video bg-cover bg-center bg-slate-200"
+                      style={{ backgroundImage: `url(${themeForm[key]})` }}
+                    />
+                    <div className="p-3 space-y-2">
+                      <p className="text-sm font-medium text-slate-800">{label}</p>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        disabled={uploadingThemeKey === key}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          await uploadThemeBackground(key, file);
+                          e.target.value = "";
+                        }}
+                        className="w-full text-xs"
+                      />
+                      {uploadingThemeKey === key && (
+                        <p className="text-xs text-slate-500 animate-pulse">Enviando...</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="submit"
+                  disabled={!!uploadingThemeKey}
+                  className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm disabled:opacity-50"
+                >
+                  Salvar fundos
+                </button>
+                <button
+                  type="button"
+                  disabled={!!uploadingThemeKey}
+                  onClick={async () => {
+                    if (!confirm("Restaurar as imagens de fundo padrão?")) return;
+                    setMessage(null);
+                    setError(null);
+                    try {
+                      const res = await fetch("/api/admin/theme", { method: "POST" });
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error || "Erro ao restaurar.");
+                      setThemeForm(data.backgrounds ?? DEFAULT_THEME_BACKGROUNDS);
+                      setMessage(data.message || "Fundos restaurados.");
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "Erro");
+                    }
+                  }}
+                  className="px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Restaurar padrão
+                </button>
+              </div>
+            </form>
           </div>
         )}
 

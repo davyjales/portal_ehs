@@ -5,8 +5,9 @@ import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   PILLAR_CONFIG,
-  parseEHSImages,
+  buildEHSMedia,
   INFO_ROTATE_MS,
+  type EHSMediaItem,
   type PillarKey,
 } from "@/lib/ehs";
 import { truncateSummary } from "@/lib/quiz";
@@ -21,6 +22,7 @@ type EHSItem = {
   body: string;
   order: number;
   images?: string;
+  videos?: string;
   coverIndex?: number;
 };
 
@@ -97,12 +99,58 @@ function InfoTextContent({
   );
 }
 
-function orderedImages(item: EHSItem): string[] {
-  const images = parseEHSImages(item.images);
-  if (images.length <= 1) return images;
-  const cover = Math.max(0, Math.min(item.coverIndex ?? 0, images.length - 1));
-  if (cover === 0) return images;
-  return [images[cover], ...images.filter((_, i) => i !== cover)];
+function MediaSlide({
+  media,
+  title,
+  active,
+}: {
+  media: EHSMediaItem;
+  title: string;
+  active: boolean;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || media.type !== "video") return;
+
+    if (active) {
+      video.currentTime = 0;
+      void video.play().catch(() => {
+        /* autoplay may be blocked until user interaction */
+      });
+    } else {
+      video.pause();
+    }
+  }, [active, media]);
+
+  if (media.type === "video") {
+    return (
+      <video
+        ref={videoRef}
+        src={media.src}
+        className="w-full h-full object-cover"
+        playsInline
+        muted
+        loop
+        controls
+        preload="metadata"
+        aria-label={title}
+      />
+    );
+  }
+
+  return (
+    <div className="relative w-full h-full">
+      <Image
+        src={media.src}
+        alt={title}
+        fill
+        className="object-cover"
+        sizes="(max-width: 640px) 100vw, 384px"
+      />
+    </div>
+  );
 }
 
 function InstagramPost({
@@ -117,11 +165,11 @@ function InstagramPost({
   onToggleExpand: () => void;
 }) {
   const config = PILLAR_CONFIG[pillar];
-  const images = orderedImages(item);
-  const [imgIndex, setImgIndex] = useState(0);
+  const media = buildEHSMedia(item.images, item.videos, item.coverIndex);
+  const [mediaIndex, setMediaIndex] = useState(0);
 
   useEffect(() => {
-    setImgIndex(0);
+    setMediaIndex(0);
   }, [item.id]);
 
   return (
@@ -139,39 +187,33 @@ function InstagramPost({
         </div>
       </div>
 
-      {images.length > 0 && (
+      {media.length > 0 && (
         <div className="relative aspect-square bg-slate-100">
-          <Image
-            src={images[imgIndex]}
-            alt={item.title}
-            fill
-            className="object-cover"
-            sizes="(max-width: 640px) 100vw, 384px"
-          />
-          {images.length > 1 && (
+          <MediaSlide media={media[mediaIndex]} title={item.title} active={true} />
+          {media.length > 1 && (
             <>
               <button
                 type="button"
-                onClick={() => setImgIndex((i) => (i - 1 + images.length) % images.length)}
-                className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/40 text-white text-xs hover:bg-black/55"
-                aria-label="Foto anterior"
+                onClick={() => setMediaIndex((i) => (i - 1 + media.length) % media.length)}
+                className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/40 text-white text-xs hover:bg-black/55 z-10"
+                aria-label="Mídia anterior"
               >
                 ‹
               </button>
               <button
                 type="button"
-                onClick={() => setImgIndex((i) => (i + 1) % images.length)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/40 text-white text-xs hover:bg-black/55"
-                aria-label="Próxima foto"
+                onClick={() => setMediaIndex((i) => (i + 1) % media.length)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/40 text-white text-xs hover:bg-black/55 z-10"
+                aria-label="Próxima mídia"
               >
                 ›
               </button>
-              <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
-                {images.map((_, i) => (
+              <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1 z-10">
+                {media.map((m, i) => (
                   <span
-                    key={i}
+                    key={`${m.type}-${m.src}`}
                     className={`w-1.5 h-1.5 rounded-full transition-all ${
-                      i === imgIndex ? "bg-white scale-125" : "bg-white/50"
+                      i === mediaIndex ? "bg-white scale-125" : "bg-white/50"
                     }`}
                   />
                 ))}
@@ -318,7 +360,7 @@ export function AmbitPanel({
 
   const config = PILLAR_CONFIG[pillar];
   const isLightTheme = pillar === "HEALTH";
-  const hasImages = current ? orderedImages(current).length > 0 : false;
+  const hasMedia = current ? buildEHSMedia(current.images, current.videos, current.coverIndex).length > 0 : false;
   const showNav = items.length > 1;
 
   return (
@@ -384,7 +426,7 @@ export function AmbitPanel({
                 transition={{ duration: 0.35 }}
                 className="cursor-grab active:cursor-grabbing"
               >
-                {hasImages ? (
+                {hasMedia ? (
                   <InstagramPost
                     item={current}
                     pillar={pillar}
