@@ -11,7 +11,6 @@ export type ScanResponse = {
   templateBase64?: string;
   imageBase64?: string;
   message?: string;
-  demoProfile?: number;
 };
 
 export type IdentifyResponse = {
@@ -57,13 +56,9 @@ export async function checkBridge(): Promise<BridgeHealth | null> {
   }
 }
 
-export async function scanSingle(options?: {
-  timeoutMs?: number;
-  demoProfile?: number;
-}): Promise<ScanResponse> {
+export async function scanSingle(options?: { timeoutMs?: number }): Promise<ScanResponse> {
   const params = new URLSearchParams();
   if (options?.timeoutMs) params.set("timeoutMs", String(options.timeoutMs));
-  if (options?.demoProfile) params.set("profile", String(options.demoProfile));
   const query = params.toString();
   return bridgeFetch<ScanResponse>(`/scan/single${query ? `?${query}` : ""}`);
 }
@@ -89,7 +84,7 @@ export async function identifyUser(
     body: JSON.stringify({
       liveTemplateBase64,
       templates,
-      timeoutMs: 15000,
+      timeoutMs: 60000,
     }),
   });
 }

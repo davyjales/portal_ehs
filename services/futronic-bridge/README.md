@@ -33,6 +33,15 @@ cd services/futronic-bridge
 dotnet run
 ```
 
+**Atalho na area de trabalho (Windows):**
+
+```cmd
+cd services\futronic-bridge
+install-desktop-shortcut.bat
+```
+
+Isso cria o atalho **Futronic Bridge EHS** que executa `start-bridge.bat` com as origens CORS do portal ja configuradas.
+
 3. (Opcional) Configure porta e origens CORS:
 
 ```powershell

@@ -58,7 +58,7 @@ app.MapGet("/health", () =>
 
 app.MapGet("/scan/single", (HttpContext context) =>
 {
-    var timeoutMs = int.TryParse(context.Request.Query["timeoutMs"], out var timeout) ? timeout : 15000;
+    var timeoutMs = int.TryParse(context.Request.Query["timeoutMs"], out var timeout) ? timeout : 60000;
 
     if (fingerprintService is DemoFingerprintService demo &&
         int.TryParse(context.Request.Query["profile"], out var profile))
@@ -112,7 +112,7 @@ app.MapPost("/identify", async (HttpRequest request) =>
 
     if (string.IsNullOrWhiteSpace(body.LiveTemplateBase64))
     {
-        var scan = fingerprintService.ScanSingle(body.TimeoutMs ?? 15000);
+        var scan = fingerprintService.ScanSingle(body.TimeoutMs ?? 60000);
         if (!scan.Success || scan.TemplateBase64 == null)
         {
             return Results.Json(new { success = false, matched = false, message = scan.Message }, jsonOptions);

@@ -8,20 +8,19 @@ import { touchKeyboardNumericProps, touchKeyboardProps } from "@/lib/touch-keybo
 import { checkBiometricStatus } from "@/lib/biometric-client";
 import BiometricLoginPanel, { BiometricRegistrationPanel } from "@/components/login/BiometricLoginPanel";
 
-type LoginMode = "biometric" | "prontuario" | "register-biometric";
+type LoginMode = "prontuario" | "register-biometric" | "biometric";
 
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = searchParams.get("redirect") || "";
 
-  const [mode, setMode] = useState<LoginMode>("biometric");
+  const [mode, setMode] = useState<LoginMode>("prontuario");
   const [prontuario, setProntuario] = useState("");
   const [password, setPassword] = useState("");
   const [requiresPassword, setRequiresPassword] = useState(false);
   const [pendingAdminPassword, setPendingAdminPassword] = useState<string | undefined>();
   const [pendingRole, setPendingRole] = useState<string>("EMPLOYEE");
-  const [demoProfile, setDemoProfile] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -122,53 +121,15 @@ export default function LoginPage() {
 
           <h1 className="text-2xl font-bold text-slate-800 mb-1">Entrar</h1>
           <p className="text-slate-500 text-sm mb-6">
-            {mode === "biometric"
-              ? "Posicione sua digital no leitor para acessar o portal."
-              : mode === "register-biometric"
-                ? "Complete o cadastro da sua digital para vincular ao prontuário."
-                : "Informe seu prontuário. Administradores sem biometria também devem informar a senha."}
+            {mode === "register-biometric"
+              ? "Cadastre sua digital para vincular ao prontuário."
+              : mode === "biometric"
+                ? "Posicione sua digital no leitor para acessar o portal."
+                : "Informe seu prontuário para acessar o portal. Administradores sem biometria também devem informar a senha."}
           </p>
 
           {error && (
             <p className="text-red-600 text-sm bg-red-50 px-3 py-2 rounded-lg mb-4">{error}</p>
-          )}
-
-          {mode === "biometric" && (
-            <>
-              <BiometricLoginPanel
-                demoProfile={demoProfile}
-                onSuccess={(payload) => handleLoginSuccess({ role: payload.role })}
-                onError={setError}
-              />
-
-              <div className="mt-4 space-y-2">
-                <label className="block text-xs text-slate-500">
-                  Perfil demo (somente sem leitor)
-                  <select
-                    value={demoProfile}
-                    onChange={(e) => setDemoProfile(Number(e.target.value))}
-                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  >
-                    {[1, 2, 3, 4, 5].map((profile) => (
-                      <option key={profile} value={profile}>
-                        Perfil {profile}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMode("prontuario");
-                    setError(null);
-                  }}
-                  className="w-full py-2 text-sm text-slate-600 hover:text-slate-800 underline-offset-2 hover:underline"
-                >
-                  Primeiro acesso / entrar com prontuário
-                </button>
-              </div>
-            </>
           )}
 
           {mode === "prontuario" && (
@@ -224,7 +185,7 @@ export default function LoginPage() {
                 disabled={loading}
                 className="w-full py-3 rounded-xl bg-slate-800 text-white font-medium hover:bg-slate-700 disabled:opacity-60 transition-colors"
               >
-                {loading ? "Verificando..." : requiresPassword ? "Continuar" : "Continuar com prontuário"}
+                {loading ? "Verificando..." : requiresPassword ? "Continuar" : "Continuar"}
               </button>
 
               <button
@@ -235,42 +196,42 @@ export default function LoginPage() {
                 }}
                 className="w-full py-2 text-sm text-slate-500 hover:text-slate-700"
               >
-                Voltar para login com digital
+                Já cadastrou biometria? Entrar com digital
               </button>
             </form>
           )}
 
           {mode === "register-biometric" && (
-            <>
-              <div className="mb-4">
-                <label className="block text-xs text-slate-500">
-                  Perfil demo (somente sem leitor)
-                  <select
-                    value={demoProfile}
-                    onChange={(e) => setDemoProfile(Number(e.target.value))}
-                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  >
-                    {[1, 2, 3, 4, 5].map((profile) => (
-                      <option key={profile} value={profile}>
-                        Perfil {profile}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
+            <BiometricRegistrationPanel
+              prontuario={prontuario.trim()}
+              password={pendingAdminPassword}
+              isAdmin={pendingRole === "ADMIN"}
+              onSuccess={(payload) => handleLoginSuccess({ role: payload.role })}
+              onError={setError}
+              onCancel={() => {
+                setMode("prontuario");
+                setError(null);
+              }}
+            />
+          )}
 
-              <BiometricRegistrationPanel
-                prontuario={prontuario.trim()}
-                password={pendingAdminPassword}
-                isAdmin={pendingRole === "ADMIN"}
-                demoProfile={demoProfile}
+          {mode === "biometric" && (
+            <>
+              <BiometricLoginPanel
                 onSuccess={(payload) => handleLoginSuccess({ role: payload.role })}
                 onError={setError}
-                onCancel={() => {
+              />
+
+              <button
+                type="button"
+                onClick={() => {
                   setMode("prontuario");
                   setError(null);
                 }}
-              />
+                className="mt-4 w-full py-2 text-sm text-slate-500 hover:text-slate-700"
+              >
+                Voltar para login com prontuário
+              </button>
             </>
           )}
         </div>

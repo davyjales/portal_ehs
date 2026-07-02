@@ -14,13 +14,11 @@ import {
 type BiometricLoginPanelProps = {
   onSuccess: (payload: { role: string; name: string }) => void;
   onError: (message: string) => void;
-  demoProfile?: number;
 };
 
 export default function BiometricLoginPanel({
   onSuccess,
   onError,
-  demoProfile,
 }: BiometricLoginPanelProps) {
   const [bridgeHealth, setBridgeHealth] = useState<BridgeHealth | null>(null);
   const [loading, setLoading] = useState(false);
@@ -33,13 +31,9 @@ export default function BiometricLoginPanel({
         setStatusMessage("Serviço de biometria offline.");
         return;
       }
-      if (health.demoMode) {
-        setStatusMessage("Modo demo ativo — pronto para simular digital.");
-        return;
-      }
       setStatusMessage(
         health.deviceConnected
-          ? "Leitor conectado. Posicione o dedo no sensor."
+          ? "Leitor conectado. Clique abaixo e posicione o dedo no sensor."
           : "Leitor não detectado. Verifique USB e drivers."
       );
     });
@@ -57,11 +51,11 @@ export default function BiometricLoginPanel({
     try {
       const templates = await fetchPortalTemplates();
       if (templates.length === 0) {
-        onError("Nenhuma biometria cadastrada. Use primeiro acesso com prontuário.");
+        onError("Nenhuma biometria cadastrada. Entre com seu prontuário para cadastrar.");
         return;
       }
 
-      const scan = await scanSingle({ demoProfile });
+      const scan = await scanSingle({ timeoutMs: 60000 });
       if (!scan.success || !scan.templateBase64) {
         onError(scan.message || "Não foi possível capturar a digital.");
         return;
@@ -85,9 +79,9 @@ export default function BiometricLoginPanel({
       onError("Falha na comunicação com o leitor biométrico.");
     } finally {
       setLoading(false);
-      setStatusMessage("Posicione o dedo no sensor para entrar.");
+      setStatusMessage("Leitor conectado. Clique abaixo e posicione o dedo no sensor.");
     }
-  }, [bridgeHealth, demoProfile, onError, onSuccess]);
+  }, [bridgeHealth, onError, onSuccess]);
 
   return (
     <div className="space-y-4">
@@ -96,11 +90,6 @@ export default function BiometricLoginPanel({
           👆
         </div>
         <p className="text-sm text-slate-600">{statusMessage}</p>
-        {bridgeHealth?.demoMode && (
-          <p className="mt-2 text-xs text-amber-700">
-            Demo: use o mesmo perfil cadastrado (1 a 5) ao entrar e ao registrar.
-          </p>
-        )}
       </div>
 
       <button
@@ -119,7 +108,6 @@ type BiometricRegistrationPanelProps = {
   prontuario: string;
   password?: string;
   isAdmin: boolean;
-  demoProfile?: number;
   onSuccess: (payload: { role: string; name: string }) => void;
   onError: (message: string) => void;
   onCancel: () => void;
@@ -129,7 +117,6 @@ export function BiometricRegistrationPanel({
   prontuario,
   password,
   isAdmin,
-  demoProfile,
   onSuccess,
   onError,
   onCancel,
@@ -137,10 +124,28 @@ export function BiometricRegistrationPanel({
   const [step, setStep] = useState<"first" | "confirm">("first");
   const [firstTemplate, setFirstTemplate] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("Posicione o dedo no sensor para cadastrar.");
+  const [bridgeReady, setBridgeReady] = useState<boolean | null>(null);
+  const [message, setMessage] = useState("Clique no botão abaixo e posicione o dedo no leitor.");
+
+  useEffect(() => {
+    checkBridge().then((health) => {
+      if (!health) {
+        setBridgeReady(false);
+        setMessage("Serviço de biometria offline. Inicie o Futronic Bridge no PC.");
+        return;
+      }
+      if (!health.deviceConnected) {
+        setBridgeReady(false);
+        setMessage("Leitor não detectado. Verifique USB e drivers.");
+        return;
+      }
+      setBridgeReady(true);
+      setMessage("Clique no botão abaixo e posicione o dedo no leitor.");
+    });
+  }, []);
 
   async function captureTemplate() {
-    const scan = await scanSingle({ demoProfile });
+    const scan = await scanSingle({ timeoutMs: 60000 });
     if (!scan.success || !scan.templateBase64) {
       throw new Error(scan.message || "Não foi possível capturar a digital.");
     }
@@ -148,8 +153,13 @@ export function BiometricRegistrationPanel({
   }
 
   async function handleFirstScan() {
+    if (!bridgeReady) {
+      onError("Leitor biométrico indisponível. Verifique o serviço Futronic Bridge.");
+      return;
+    }
+
     setLoading(true);
-    setMessage("Aguardando primeira digital...");
+    setMessage("Aguardando digital... Coloque o dedo no leitor agora.");
     try {
       const template = await captureTemplate();
       setFirstTemplate(template);
@@ -157,6 +167,7 @@ export function BiometricRegistrationPanel({
       setMessage("Repita a digital para confirmar o cadastro.");
     } catch (err) {
       onError(err instanceof Error ? err.message : "Erro na captura.");
+      setMessage("Clique no botão abaixo e posicione o dedo no leitor.");
     } finally {
       setLoading(false);
     }
@@ -166,7 +177,7 @@ export function BiometricRegistrationPanel({
     if (!firstTemplate) return;
 
     setLoading(true);
-    setMessage("Aguardando confirmação...");
+    setMessage("Aguardando confirmação... Coloque o mesmo dedo no leitor.");
     try {
       const confirmTemplate = await captureTemplate();
       const verify = await verifyTemplate(confirmTemplate, firstTemplate);
@@ -174,7 +185,7 @@ export function BiometricRegistrationPanel({
         onError("As digitais não coincidem. Tente novamente.");
         setStep("first");
         setFirstTemplate(null);
-        setMessage("Posicione o dedo no sensor para cadastrar.");
+        setMessage("Clique no botão abaixo e posicione o dedo no leitor.");
         return;
       }
 
@@ -197,6 +208,7 @@ export function BiometricRegistrationPanel({
       onSuccess({ role: data.role, name: data.name });
     } catch (err) {
       onError(err instanceof Error ? err.message : "Erro na confirmação.");
+      setMessage("Clique no botão abaixo e posicione o dedo no leitor.");
     } finally {
       setLoading(false);
     }
@@ -217,10 +229,14 @@ export function BiometricRegistrationPanel({
       <button
         type="button"
         onClick={step === "first" ? handleFirstScan : handleConfirmScan}
-        disabled={loading}
+        disabled={loading || bridgeReady === false}
         className="w-full py-3 rounded-xl bg-emerald-700 text-white font-medium hover:bg-emerald-600 disabled:opacity-60 transition-colors"
       >
-        {loading ? "Aguardando digital..." : step === "first" ? "Capturar digital" : "Confirmar digital"}
+        {loading
+          ? "Aguardando digital..."
+          : step === "first"
+            ? "Capturar digital"
+            : "Confirmar digital"}
       </button>
 
       <button
@@ -229,7 +245,7 @@ export function BiometricRegistrationPanel({
         disabled={loading}
         className="w-full py-2 text-sm text-slate-500 hover:text-slate-700"
       >
-        Cancelar
+        Voltar
       </button>
     </div>
   );

@@ -1,16 +1,34 @@
 using System.Runtime.InteropServices;
-using System.Text;
 
 namespace FutronicBridge.Native;
 
 /// <summary>
 /// P/Invoke bindings for Futronic SDK (ftrScanAPI.dll + FTRAPI.dll).
-/// Copy SDK DLLs next to FutronicBridge.exe or set FUTRONIC_SDK_PATH.
 /// </summary>
 internal static class FutronicNative
 {
-    private const int FtrScanImageSize = 256 * 292;
     private const int MaxTemplateSize = 2048;
+    private const int DefaultCaptureTimeoutMs = 60000;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FtrScanImageSize
+    {
+        public int Width;
+        public int Height;
+        public int ImageSize;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FtrScanFrameParameters
+    {
+        public int ContrastOnDose2;
+        public int ContrastOnDose4;
+        public int Dose;
+        public int BrightnessOnDose1;
+        public int BrightnessOnDose2;
+        public int BrightnessOnDose3;
+        public int BrightnessOnDose4;
+    }
 
     [DllImport("ftrScanAPI.dll", CallingConvention = CallingConvention.StdCall)]
     private static extern IntPtr ftrScanOpenDevice();
@@ -19,12 +37,20 @@ internal static class FutronicNative
     private static extern void ftrScanCloseDevice(IntPtr handle);
 
     [DllImport("ftrScanAPI.dll", CallingConvention = CallingConvention.StdCall)]
-    private static extern int ftrScanGetImage2(
-        IntPtr handle,
-        int bufferSize,
-        byte[] buffer,
-        out int imageSize,
-        out int frameParameters);
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool ftrScanGetImageSize(IntPtr handle, out FtrScanImageSize imageSize);
+
+    [DllImport("ftrScanAPI.dll", CallingConvention = CallingConvention.StdCall)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool ftrScanIsFingerPresent(IntPtr handle, out FtrScanFrameParameters frameParameters);
+
+    [DllImport("ftrScanAPI.dll", CallingConvention = CallingConvention.StdCall)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool ftrScanGetImage(IntPtr handle, int dose, byte[] buffer);
+
+    [DllImport("ftrScanAPI.dll", CallingConvention = CallingConvention.StdCall)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool ftrScanGetImage2(IntPtr handle, int dose, byte[] buffer);
 
     [DllImport("FTRAPI.dll", CallingConvention = CallingConvention.StdCall)]
     private static extern int FTRInitialize();
@@ -81,12 +107,7 @@ internal static class FutronicNative
 
             try
             {
-                if (FTRInitialize() != 0)
-                {
-                    error = "Falha ao inicializar FTRAPI.";
-                    return false;
-                }
-
+                FTRInitialize();
                 _initialized = true;
                 error = null;
                 return true;
@@ -104,7 +125,7 @@ internal static class FutronicNative
         }
     }
 
-    public static (bool Success, byte[]? Template, string? Error) CaptureTemplate(int timeoutMs)
+    public static (bool Success, byte[]? Template, string? Error) CaptureTemplate(int timeoutMs = DefaultCaptureTimeoutMs)
     {
         if (!EnsureInitialized(out var initError))
         {
@@ -120,30 +141,49 @@ internal static class FutronicNative
                 return (false, null, "Leitor Futronic não detectado.");
             }
 
-            var image = new byte[FtrScanImageSize];
+            if (!ftrScanGetImageSize(handle, out var imageSizeInfo) || imageSizeInfo.ImageSize <= 0)
+            {
+                imageSizeInfo.ImageSize = 256 * 292;
+            }
+
+            var image = new byte[imageSizeInfo.ImageSize];
             var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            var lastHint = "Posicione o dedo no leitor.";
 
             while (DateTime.UtcNow < deadline)
             {
-                var rc = ftrScanGetImage2(handle, image.Length, image, out var imageSize, out _);
-                if (rc == 0 && imageSize > 0)
+                var dosesToTry = new List<int>();
+                if (ftrScanIsFingerPresent(handle, out var frameParameters))
                 {
-                    var template = new byte[MaxTemplateSize];
-                    var templateSize = template.Length;
-                    var createRc = FTRCreateTemplate(image, imageSize, template, ref templateSize);
-                    if (createRc == 0 && templateSize > 0)
-                    {
-                        Array.Resize(ref template, templateSize);
-                        return (true, template, null);
-                    }
-
-                    return (false, null, "Falha ao gerar template da digital.");
+                    dosesToTry.Add(frameParameters.Dose);
                 }
 
-                Thread.Sleep(120);
+                foreach (var fallback in new[] { 4, 0, 1, 2, 3 })
+                {
+                    if (!dosesToTry.Contains(fallback))
+                    {
+                        dosesToTry.Add(fallback);
+                    }
+                }
+
+                foreach (var dose in dosesToTry)
+                {
+                    if (TryCaptureImage(handle, dose, image))
+                    {
+                        var templateResult = CreateTemplateFromImage(image, imageSizeInfo.ImageSize);
+                        if (templateResult.Success)
+                        {
+                            return templateResult;
+                        }
+
+                        lastHint = templateResult.Error ?? lastHint;
+                    }
+                }
+
+                Thread.Sleep(100);
             }
 
-            return (false, null, "Tempo esgotado aguardando digital.");
+            return (false, null, $"Tempo esgotado aguardando digital. {lastHint}");
         }
         catch (Exception ex)
         {
@@ -156,6 +196,30 @@ internal static class FutronicNative
                 ftrScanCloseDevice(handle);
             }
         }
+    }
+
+    private static bool TryCaptureImage(IntPtr handle, int dose, byte[] buffer)
+    {
+        if (ftrScanGetImage2(handle, dose, buffer))
+        {
+            return true;
+        }
+
+        return ftrScanGetImage(handle, dose, buffer);
+    }
+
+    private static (bool Success, byte[]? Template, string? Error) CreateTemplateFromImage(byte[] image, int imageSize)
+    {
+        var template = new byte[MaxTemplateSize];
+        var templateSize = template.Length;
+        var createRc = FTRCreateTemplate(image, imageSize, template, ref templateSize);
+        if (createRc == 0 && templateSize > 0)
+        {
+            Array.Resize(ref template, templateSize);
+            return (true, template, null);
+        }
+
+        return (false, null, $"Falha ao gerar template da digital (código {createRc}).");
     }
 
     public static (bool Matched, int Score, string? Error) MatchTemplates(byte[] live, byte[] stored)
