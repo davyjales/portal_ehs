@@ -20,10 +20,16 @@ No modo demo, use `?profile=1` a `?profile=5` em `/scan/single` para simular dig
 
 ## Modo produção (com leitor)
 
-1. Copie `ftrScanAPI.dll` e `FTRAPI.dll` do SDK Futronic para a pasta de saída do projeto, **ou** defina:
+1. Copie do **WorkedEx** do SDK Futronic para `bin\Debug\net8.0\` (ou defina `FUTRONIC_SDK_PATH`):
 
-```powershell
-$env:FUTRONIC_SDK_PATH = "C:\caminho\para\sdk\futronic"
+   - `ftrScanAPI.dll`
+   - `FTRAPI.dll`
+   - pasta `DataBase\` (com subpasta `Bmp\`)
+
+   Não é necessário `ftrAnsiSdk.dll` — o bridge usa `FTREnroll` do `FTRAPI.dll`, igual ao WorkedEx.
+
+```cmd
+set FUTRONIC_SDK_PATH=C:\caminho\para\WorkedEx
 ```
 
 2. Inicie o bridge:

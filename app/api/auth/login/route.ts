@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { establishUserSession, userHasBiometric } from "@/lib/session-establish";
+import { establishUserSession } from "@/lib/session-establish";
 import type { Role } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
@@ -23,9 +23,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const hasBiometric = await userHasBiometric(user.id);
-
-    if (user.role === "ADMIN" && !hasBiometric) {
+    if (user.role === "ADMIN") {
       if (!password) {
         return NextResponse.json(
           { error: "Senha é obrigatória para administradores.", requiresPassword: true },
@@ -47,19 +45,6 @@ export async function POST(request: NextRequest) {
           { status: 401 }
         );
       }
-    }
-
-    if (!hasBiometric) {
-      return NextResponse.json(
-        {
-          error: "Cadastre sua biometria para continuar.",
-          requiresBiometricRegistration: true,
-          userId: user.id,
-          name: user.name,
-          role: user.role,
-        },
-        { status: 403 }
-      );
     }
 
     return establishUserSession({
