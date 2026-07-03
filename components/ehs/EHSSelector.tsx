@@ -14,6 +14,8 @@ import {
 import { ThemeProvider } from "./ThemeProvider";
 import { ThemeBackground } from "./ThemeBackground";
 import { AmbitPanel } from "./AmbitPanel";
+import { useScreenWakeLock } from "@/lib/wake-lock";
+import { useSessionKeepAlive } from "@/lib/session-keepalive";
 import {
   DEFAULT_THEME_BACKGROUNDS,
   type ThemeBackgrounds,
@@ -299,6 +301,9 @@ export function EHSSelector({
 
   const showContent = !!selected;
   const autoRotate = compact || showContent;
+
+  useScreenWakeLock(autoRotate);
+  useSessionKeepAlive(autoRotate);
 
   return (
     <ThemeProvider selected={selected} onSelect={setSelected}>

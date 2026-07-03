@@ -31,7 +31,7 @@ export async function PATCH(request: NextRequest) {
 
   const updated = await prisma.pendencia.update({
     where: { id },
-    data: { status: "DONE" },
+    data: { status: "DONE", resolvedAt: new Date() },
   });
 
   return NextResponse.json(updated);

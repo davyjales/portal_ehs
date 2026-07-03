@@ -88,7 +88,7 @@ internal static class FutronicNative
             return File.Exists(Path.Combine(AppContext.BaseDirectory, "ftrScanAPI.dll"));
         }
 
-        NativeLibrary.SetDllImportResolver(typeof(FutronicNative).Assembly, (_, libraryName, __, ___) =>
+        NativeLibrary.SetDllImportResolver(typeof(FutronicNative).Assembly, (libraryName, _, _) =>
         {
             var candidate = Path.Combine(sdkPath, libraryName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
                 ? libraryName

@@ -26,8 +26,8 @@ export function rotateQuizPageToken(): string {
   return token;
 }
 
-/** Chamado uma vez por carregamento completo do documento (refresh / nova aba). */
+/** Garante token na sessão sem invalidar tentativa em andamento (evita refazer quiz no F5). */
 export function initQuizPageTokenOnLoad(): string {
   if (typeof window === "undefined") return "";
-  return rotateQuizPageToken();
+  return getQuizPageToken();
 }

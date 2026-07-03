@@ -6,14 +6,19 @@ export async function GET(request: NextRequest) {
   const admin = await requireAdmin(request);
   if (!admin) return forbidden();
 
-  const [ehs, pendencias, alertas, challenges, users] = await Promise.all([
+  const [ehs, pendencias, alertas, challenges, users, quizQuestions] = await Promise.all([
     prisma.eHSContent.findMany({ orderBy: [{ pillar: "asc" }, { order: "asc" }] }),
     prisma.pendencia.findMany({
       include: { user: { select: { name: true, prontuario: true } } },
       orderBy: { createdAt: "desc" },
     }),
     prisma.alerta.findMany({
-      include: { user: { select: { name: true } } },
+      include: {
+        user: { select: { name: true, prontuario: true } },
+        acknowledgments: {
+          include: { user: { select: { name: true, prontuario: true } } },
+        },
+      },
       orderBy: { createdAt: "desc" },
     }),
     prisma.challenge.findMany({ orderBy: { weekStart: "desc" } }),
@@ -27,7 +32,18 @@ export async function GET(request: NextRequest) {
       },
       orderBy: { name: "asc" },
     }),
+    prisma.quizQuestion.findMany({ orderBy: { question: "asc" } }),
   ]);
 
-  return NextResponse.json({ ehs, pendencias, alertas, challenges, users });
+  return NextResponse.json({
+    ehs,
+    pendencias,
+    alertas,
+    challenges,
+    users,
+    quizQuestions: quizQuestions.map((q) => ({
+      ...q,
+      options: JSON.parse(q.options) as string[],
+    })),
+  });
 }

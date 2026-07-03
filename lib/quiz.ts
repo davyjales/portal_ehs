@@ -52,6 +52,19 @@ export function truncateSummary(text: string, max = 120): string {
 
 export const QUIZ_QUESTIONS_PER_CHALLENGE = 3;
 
+/** Início da semana (domingo 00:00) no fuso local do servidor. */
+export function startOfWeek(date = new Date()): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay());
+  return d;
+}
+
+/** Verifica se o usuário já concluiu algum quiz nesta semana. */
+export function isSameWeek(a: Date, b = new Date()): boolean {
+  return a >= startOfWeek(b);
+}
+
 export type QuizReviewItem = {
   questionId: string;
   question: string;

@@ -55,14 +55,38 @@ $env:FUTRONIC_BRIDGE_PORT = "8080"
 $env:FUTRONIC_BRIDGE_ORIGINS = "http://localhost:3000,https://portal.suaempresa.com.br"
 ```
 
+4. **Keepalive de sessão (anti Win+L):** ativo por padrão. O bridge envia um pulso discreto a cada 3 minutos para evitar que o Windows bloqueie a sessão por inatividade no totem do informativo.
+
+```powershell
+# Desabilitar (se necessário)
+$env:FUTRONIC_SESSION_KEEPALIVE = "0"
+
+# Intervalo em segundos (padrão: 180 = 3 min; deve ser menor que o timeout de bloqueio do Windows)
+$env:FUTRONIC_KEEPALIVE_INTERVAL_SEC = "120"
+```
+
+**Importante:** o navegador sozinho não consegue impedir o bloqueio Win+L. O totem deve manter o bridge rodando (`start-bridge.bat` ou Agendador de Tarefas).
+
 ## Endpoints
 
 | Método | Rota | Descrição |
 |--------|------|-----------|
 | GET | `/health` | Status do serviço e leitor |
+| GET | `/keepalive/status` | Status do anti-bloqueio Win+L |
+| POST | `/keepalive/pulse` | Pulso manual de atividade |
 | GET | `/scan/single` | Captura uma digital |
 | POST | `/verify` | Compara live vs template armazenado |
 | POST | `/identify` | Identifica usuário (1:N) |
+
+## Bloqueio Win+L ainda ocorre?
+
+Se o Windows continuar bloqueando mesmo com o bridge ativo, ajuste no PC do totem (requer admin):
+
+1. **Configurações → Contas → Opções de entrada:** em "Se a Windows exigir entrada novamente", selecione **Nunca**.
+2. **Configurações → Personalização → Tela de bloqueio → Configurações de proteção de tela:** desative a proteção de tela ou remova "Ao retomar, exibir a tela de logon".
+3. **Política de grupo (se aplicável):** desative "Limite de inatividade da máquina para logon interativo" ou aumente o tempo.
+
+O keepalive do bridge complementa essas configurações — não substitui políticas corporativas muito restritivas.
 
 ## Inicialização automática
 

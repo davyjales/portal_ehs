@@ -1,16 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   PILLAR_CONFIG,
   buildEHSMedia,
   INFO_ROTATE_MS,
+  INFO_IMAGE_SLIDE_MS,
   type EHSMediaItem,
   type PillarKey,
 } from "@/lib/ehs";
 import { truncateSummary } from "@/lib/quiz";
+import { ImageLightbox, PinchZoomImage } from "./PinchZoomImage";
 
 const SWIPE_THRESHOLD = 50;
 const AUTO_ROTATE_PAUSE_MS = 8000;
@@ -103,10 +104,16 @@ function MediaSlide({
   media,
   title,
   active,
+  onVideoEnded,
+  onImageTap,
+  onUserInteract,
 }: {
   media: EHSMediaItem;
   title: string;
   active: boolean;
+  onVideoEnded?: () => void;
+  onImageTap?: () => void;
+  onUserInteract?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -129,27 +136,25 @@ function MediaSlide({
       <video
         ref={videoRef}
         src={media.src}
-        className="w-full h-full object-cover"
+        className="w-full max-h-[70vh] object-contain bg-black mx-auto"
         playsInline
         muted
-        loop
         controls
         preload="metadata"
         aria-label={title}
+        onEnded={() => active && onVideoEnded?.()}
+        onPlay={onUserInteract}
       />
     );
   }
 
   return (
-    <div className="relative w-full h-full">
-      <Image
-        src={media.src}
-        alt={title}
-        fill
-        className="object-cover"
-        sizes="(max-width: 640px) 100vw, 384px"
-      />
-    </div>
+    <PinchZoomImage
+      src={media.src}
+      alt={title}
+      onTap={onImageTap}
+      onUserInteract={onUserInteract}
+    />
   );
 }
 
@@ -158,84 +163,138 @@ function InstagramPost({
   pillar,
   expanded,
   onToggleExpand,
+  onMediaSequenceComplete,
+  onUserInteract,
 }: {
   item: EHSItem;
   pillar: PillarKey;
   expanded: boolean;
   onToggleExpand: () => void;
+  onMediaSequenceComplete?: () => void;
+  onUserInteract?: () => void;
 }) {
   const config = PILLAR_CONFIG[pillar];
   const media = buildEHSMedia(item.images, item.videos, item.coverIndex);
   const [mediaIndex, setMediaIndex] = useState(0);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const completedRef = useRef(false);
 
   useEffect(() => {
     setMediaIndex(0);
+    completedRef.current = false;
   }, [item.id]);
 
+  const advanceMedia = useCallback(() => {
+    if (completedRef.current) return;
+
+    if (mediaIndex >= media.length - 1) {
+      completedRef.current = true;
+      onMediaSequenceComplete?.();
+    } else {
+      setMediaIndex((i) => i + 1);
+    }
+  }, [media.length, mediaIndex, onMediaSequenceComplete]);
+
+  useEffect(() => {
+    if (media.length === 0 || completedRef.current) return;
+
+    const current = media[mediaIndex];
+    if (current.type === "video") return;
+
+    const timer = setTimeout(advanceMedia, INFO_IMAGE_SLIDE_MS);
+    return () => clearTimeout(timer);
+  }, [media, mediaIndex, advanceMedia]);
+
+  const currentMedia = media[mediaIndex];
+
   return (
-    <div className="bg-white rounded-xl overflow-hidden shadow-lg border border-slate-200/80 max-w-sm mx-auto">
-      <div className="flex items-center gap-2.5 px-3 py-2.5 border-b border-slate-100">
-        <div
-          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
-          style={{ backgroundColor: config.color }}
-        >
-          {config.letter}
+    <>
+      <div className="bg-white rounded-xl overflow-hidden shadow-lg border border-slate-200/80 max-w-sm mx-auto">
+        <div className="flex items-center gap-2.5 px-3 py-2.5 border-b border-slate-100">
+          <div
+            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
+            style={{ backgroundColor: config.color }}
+          >
+            {config.letter}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-900 truncate">{config.label}</p>
+            <p className="text-[11px] text-slate-500 truncate">Portal EHS</p>
+          </div>
         </div>
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-slate-900 truncate">{config.label}</p>
-          <p className="text-[11px] text-slate-500 truncate">Portal EHS</p>
+
+        {media.length > 0 && currentMedia && (
+          <div className="relative bg-slate-100 flex items-center justify-center min-h-[200px]">
+            <MediaSlide
+              media={currentMedia}
+              title={item.title}
+              active={true}
+              onVideoEnded={advanceMedia}
+              onImageTap={() => {
+                if (currentMedia.type === "image") {
+                  onUserInteract?.();
+                  setLightboxSrc(currentMedia.src);
+                }
+              }}
+              onUserInteract={onUserInteract}
+            />
+            {media.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onUserInteract?.();
+                    setMediaIndex((i) => (i - 1 + media.length) % media.length);
+                  }}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/40 text-white text-xs hover:bg-black/55 z-10"
+                  aria-label="Mídia anterior"
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onUserInteract?.();
+                    setMediaIndex((i) => (i + 1) % media.length);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/40 text-white text-xs hover:bg-black/55 z-10"
+                  aria-label="Próxima mídia"
+                >
+                  ›
+                </button>
+                <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1 z-10">
+                  {media.map((m, i) => (
+                    <span
+                      key={`${m.type}-${m.src}`}
+                      className={`w-1.5 h-1.5 rounded-full transition-all ${
+                        i === mediaIndex ? "bg-white scale-125" : "bg-white/50"
+                      }`}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        <div className="px-3 py-3 space-y-1.5">
+          <p className="text-sm">
+            <span className="font-semibold text-slate-900 mr-1.5">{config.label}</span>
+          </p>
+          <InfoTextContent
+            item={item}
+            pillar={pillar}
+            expanded={expanded}
+            onToggleExpand={onToggleExpand}
+            isLightTheme
+          />
         </div>
       </div>
 
-      {media.length > 0 && (
-        <div className="relative aspect-square bg-slate-100">
-          <MediaSlide media={media[mediaIndex]} title={item.title} active={true} />
-          {media.length > 1 && (
-            <>
-              <button
-                type="button"
-                onClick={() => setMediaIndex((i) => (i - 1 + media.length) % media.length)}
-                className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/40 text-white text-xs hover:bg-black/55 z-10"
-                aria-label="Mídia anterior"
-              >
-                ‹
-              </button>
-              <button
-                type="button"
-                onClick={() => setMediaIndex((i) => (i + 1) % media.length)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/40 text-white text-xs hover:bg-black/55 z-10"
-                aria-label="Próxima mídia"
-              >
-                ›
-              </button>
-              <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1 z-10">
-                {media.map((m, i) => (
-                  <span
-                    key={`${m.type}-${m.src}`}
-                    className={`w-1.5 h-1.5 rounded-full transition-all ${
-                      i === mediaIndex ? "bg-white scale-125" : "bg-white/50"
-                    }`}
-                  />
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+      {lightboxSrc && (
+        <ImageLightbox src={lightboxSrc} alt={item.title} onClose={() => setLightboxSrc(null)} />
       )}
-
-      <div className="px-3 py-3 space-y-1.5">
-        <p className="text-sm">
-          <span className="font-semibold text-slate-900 mr-1.5">{config.label}</span>
-        </p>
-        <InfoTextContent
-          item={item}
-          pillar={pillar}
-          expanded={expanded}
-          onToggleExpand={onToggleExpand}
-          isLightTheme
-        />
-      </div>
-    </div>
+    </>
   );
 }
 
@@ -255,6 +314,7 @@ export function AmbitPanel({
   const [expanded, setExpanded] = useState(false);
   const [autoRotateEnabled, setAutoRotateEnabled] = useState(true);
   const pauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const textTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const pauseAutoRotate = useCallback(() => {
     setAutoRotateEnabled(false);
@@ -279,8 +339,9 @@ export function AmbitPanel({
       onAllItemsShown?.();
       return;
     }
-    goTo(index + 1);
-  }, [index, items.length, goTo, onAllItemsShown]);
+    setExpanded(false);
+    setIndex((i) => i + 1);
+  }, [index, items.length, onAllItemsShown]);
 
   const goPrev = useCallback(() => {
     if (items.length === 0 || index <= 0) return;
@@ -323,44 +384,61 @@ export function AmbitPanel({
     };
   }, [pillar]);
 
+  const current = useMemo(() => items[index], [items, index]);
+  const currentMedia = useMemo(
+    () =>
+      current
+        ? buildEHSMedia(current.images, current.videos, current.coverIndex)
+        : [],
+    [current]
+  );
+
   useEffect(() => {
+    if (textTimerRef.current) {
+      clearTimeout(textTimerRef.current);
+      textTimerRef.current = null;
+    }
+
     if (loading || !pillar || !autoRotateEnabled) return;
 
     if (items.length === 0) {
       if (onAllItemsShown) {
-        const timer = setTimeout(onAllItemsShown, INFO_ROTATE_MS);
-        return () => clearTimeout(timer);
+        textTimerRef.current = setTimeout(onAllItemsShown, INFO_ROTATE_MS);
       }
       return;
     }
 
-    const timer = setInterval(() => {
-      setIndex((i) => {
-        if (i >= items.length - 1) {
-          onAllItemsShown?.();
-          return i;
-        }
-        setExpanded(false);
-        return i + 1;
-      });
-    }, INFO_ROTATE_MS);
+    if (!current || currentMedia.length > 0) return;
 
-    return () => clearInterval(timer);
-  }, [items, loading, pillar, onAllItemsShown, autoRotateEnabled]);
+    textTimerRef.current = setTimeout(goNext, INFO_ROTATE_MS);
+
+    return () => {
+      if (textTimerRef.current) clearTimeout(textTimerRef.current);
+    };
+  }, [
+    items,
+    loading,
+    pillar,
+    onAllItemsShown,
+    autoRotateEnabled,
+    current,
+    currentMedia.length,
+    index,
+    goNext,
+  ]);
 
   useEffect(() => {
     return () => {
       if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
+      if (textTimerRef.current) clearTimeout(textTimerRef.current);
     };
   }, []);
-
-  const current = useMemo(() => items[index], [items, index]);
 
   if (!pillar) return null;
 
   const config = PILLAR_CONFIG[pillar];
   const isLightTheme = pillar === "HEALTH";
-  const hasMedia = current ? buildEHSMedia(current.images, current.videos, current.coverIndex).length > 0 : false;
+  const hasMedia = currentMedia.length > 0;
   const showNav = items.length > 1;
 
   return (
@@ -435,6 +513,10 @@ export function AmbitPanel({
                       pauseAutoRotate();
                       setExpanded((v) => !v);
                     }}
+                    onMediaSequenceComplete={() => {
+                      if (autoRotateEnabled) goNext();
+                    }}
+                    onUserInteract={pauseAutoRotate}
                   />
                 ) : (
                   <div

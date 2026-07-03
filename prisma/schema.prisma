@@ -16,6 +16,7 @@ model User {
   createdAt           DateTime             @default(now())
   pendencias          Pendencia[]
   alertas             Alerta[]
+  alertaAcks          AlertaAcknowledgment[]
   certificados        Certificado[]
   solicitacoes        Solicitacao[]
   scores              UserScore[]
@@ -54,19 +55,32 @@ model Pendencia {
   description String
   status      String    @default("OPEN")
   dueDate     DateTime?
+  resolvedAt  DateTime?
   createdAt   DateTime  @default(now())
 }
 
 model Alerta {
-  id             String    @id @default(cuid())
-  userId         String?
-  user           User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title          String
-  message        String
-  type           String    @default("INFO")
-  expiresAt      DateTime?
-  acknowledgedAt DateTime?
-  createdAt      DateTime  @default(now())
+  id               String                 @id @default(cuid())
+  userId           String?
+  user             User?                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title            String
+  message          String
+  type             String                 @default("INFO")
+  expiresAt        DateTime?
+  acknowledgedAt   DateTime?
+  createdAt        DateTime               @default(now())
+  acknowledgments  AlertaAcknowledgment[]
+}
+
+model AlertaAcknowledgment {
+  id             String   @id @default(cuid())
+  alertaId       String
+  alerta         Alerta   @relation(fields: [alertaId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  acknowledgedAt DateTime @default(now())
+
+  @@unique([alertaId, userId])
 }
 
 model Certificado {

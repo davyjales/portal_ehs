@@ -52,6 +52,8 @@ export const TEAM_BG_OVERLAY =
   "linear-gradient(135deg, rgba(241,245,249,0.88) 0%, rgba(226,232,240,0.82) 45%, rgba(203,213,225,0.78) 100%)";
 
 export const INFO_ROTATE_MS = 6000;
+/** Tempo de exibição de cada imagem no carrossel interno do post */
+export const INFO_IMAGE_SLIDE_MS = 5000;
 export const IDLE_AUTO_START_MS = 30000;
 /** Duração da transição de cor/banner de fundo (ms) */
 export const THEME_TRANSITION_MS = 1150;

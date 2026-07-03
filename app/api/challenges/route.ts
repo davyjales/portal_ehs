@@ -4,6 +4,7 @@ import { requireAuth, unauthorized, badRequest } from "@/lib/api-helpers";
 import {
   buildQuizReview,
   calculateQuizPoints,
+  startOfWeek,
   type QuizReviewItem,
 } from "@/lib/quiz";
 import {
@@ -37,6 +38,35 @@ export async function GET(request: NextRequest) {
 
   if (!challenge) {
     return NextResponse.json(null);
+  }
+
+  const weeklyCompletion = await prisma.userScore.findFirst({
+    where: {
+      userId: user.id,
+      completedAt: { gte: startOfWeek() },
+    },
+    orderBy: { completedAt: "desc" },
+    include: { challenge: { select: { title: true } } },
+  });
+
+  if (weeklyCompletion && weeklyCompletion.challengeId !== challenge.id) {
+    return NextResponse.json({
+      id: challenge.id,
+      title: challenge.title,
+      description: challenge.description,
+      points: challenge.points,
+      completed: true,
+      weeklyBlocked: true,
+      blockedMessage:
+        "Você já concluiu o quiz desta semana. Um novo desafio estará disponível na próxima semana.",
+      inProgress: false,
+      questions: [],
+      startedAt: null,
+      earnedPoints: weeklyCompletion.points,
+      correctCount: weeklyCompletion.correctCount,
+      totalQuestions: parseReviewJson(weeklyCompletion.reviewJson).length || undefined,
+      review: parseReviewJson(weeklyCompletion.reviewJson),
+    });
   }
 
   const existing = await prisma.userScore.findUnique({
@@ -127,6 +157,14 @@ async function handleStart(
     return NextResponse.json({ error: "Desafio não encontrado." }, { status: 404 });
   }
 
+  const weeklyDone = await prisma.userScore.findFirst({
+    where: { userId, completedAt: { gte: startOfWeek() } },
+  });
+
+  if (weeklyDone) {
+    return badRequest("Você já concluiu o quiz desta semana. Aguarde a próxima semana.");
+  }
+
   const existing = await prisma.userScore.findUnique({
     where: { userId_challengeId: { userId, challengeId: challenge.id } },
   });
@@ -180,6 +218,14 @@ async function handleSubmit(
 
   if (!challenge) {
     return NextResponse.json({ error: "Desafio não encontrado." }, { status: 404 });
+  }
+
+  const weeklyDone = await prisma.userScore.findFirst({
+    where: { userId, completedAt: { gte: startOfWeek() } },
+  });
+
+  if (weeklyDone) {
+    return badRequest("Você já concluiu o quiz desta semana. Aguarde a próxima semana.");
   }
 
   const existing = await prisma.userScore.findUnique({

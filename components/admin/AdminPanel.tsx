@@ -28,9 +28,37 @@ type EHSContent = {
   videos?: string;
   coverIndex?: number;
 };
-type Pendencia = { id: string; title: string; user: { name: string; prontuario: string }; status: string; dueDate: string | null };
-type Alerta = { id: string; title: string; type: string; user: { name: string } | null };
-type Challenge = { id: string; title: string; points: number; active: boolean; weekStart: string };
+type Pendencia = {
+  id: string;
+  title: string;
+  user: { name: string; prontuario: string };
+  status: string;
+  dueDate: string | null;
+  resolvedAt: string | null;
+};
+type Alerta = {
+  id: string;
+  title: string;
+  type: string;
+  user: { name: string; prontuario: string } | null;
+  acknowledgedAt: string | null;
+  acknowledgments?: { user: { name: string; prontuario: string }; acknowledgedAt: string }[];
+};
+type Challenge = {
+  id: string;
+  title: string;
+  description: string;
+  points: number;
+  active: boolean;
+  weekStart: string;
+};
+type QuizQuestionItem = {
+  id: string;
+  question: string;
+  options: string[];
+  correct: number;
+  active: boolean;
+};
 
 type AdminSection = "ehs" | "themes" | "pendencias" | "alertas" | "challenges" | "users";
 
@@ -72,6 +100,7 @@ export function AdminPanel() {
   const [pendencias, setPendencias] = useState<Pendencia[]>([]);
   const [alertas, setAlertas] = useState<Alerta[]>([]);
   const [challenges, setChallenges] = useState<Challenge[]>([]);
+  const [quizQuestions, setQuizQuestions] = useState<QuizQuestionItem[]>([]);
   const [users, setUsers] = useState<User[]>([]);
 
   const [ehsForm, setEhsForm] = useState({ ...EMPTY_EHS_FORM, images: [] as string[], videos: [] as string[] });
@@ -81,9 +110,37 @@ export function AdminPanel() {
   const [themeForm, setThemeForm] = useState<ThemeBackgrounds>(DEFAULT_THEME_BACKGROUNDS);
   const [uploadingThemeKey, setUploadingThemeKey] = useState<string | null>(null);
   const [themeLoaded, setThemeLoaded] = useState(false);
-  const [pendForm, setPendForm] = useState({ prontuario: "", title: "", description: "", dueDate: "" });
+  const [pendForm, setPendForm] = useState({
+    prontuario: "",
+    title: "",
+    description: "",
+    dueDate: "",
+    broadcast: false,
+  });
   const [alertForm, setAlertForm] = useState({ prontuario: "", title: "", message: "", type: "INFO", broadcast: false });
   const [challengeForm, setChallengeForm] = useState({ title: "", description: "", points: 50 });
+  const [editingChallengeId, setEditingChallengeId] = useState<string | null>(null);
+  const [editChallengeForm, setEditChallengeForm] = useState({
+    title: "",
+    description: "",
+    points: 50,
+    active: false,
+  });
+  const [quizForm, setQuizForm] = useState({
+    question: "",
+    options: ["", "", "", ""],
+    correct: 0,
+    active: true,
+  });
+  const [editingQuizId, setEditingQuizId] = useState<string | null>(null);
+  const [pendReport, setPendReport] = useState<{
+    summary: { total: number; resolvidas: number; pendentes: number };
+    rows: { titulo: string; funcionario: string; prontuario: string; status: string; prazo: string; resolvidaEm: string }[];
+  } | null>(null);
+  const [alertReport, setAlertReport] = useState<{
+    summary: { total: number; comCiencia: number; semCiencia: number };
+    rows: { titulo: string; funcionario: string; prontuario: string; ciencia: string; cienciaEm: string; destino: string }[];
+  } | null>(null);
   const [userForm, setUserForm] = useState({
     prontuario: "",
     name: "",
@@ -114,6 +171,7 @@ export function AdminPanel() {
       setPendencias(data.pendencias);
       setAlertas(data.alertas);
       setChallenges(data.challenges);
+      setQuizQuestions(data.quizQuestions ?? []);
       setUsers(data.users);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro desconhecido.");
@@ -701,12 +759,54 @@ export function AdminPanel() {
 
         {section === "pendencias" && (
           <div className="space-y-6">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const res = await fetch("/api/admin/reports?type=pendencias");
+                    if (!res.ok) throw new Error("Erro ao gerar relatório.");
+                    setPendReport(await res.json());
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : "Erro");
+                  }
+                }}
+                className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm"
+              >
+                Gerar relatório
+              </button>
+              <a
+                href="/api/admin/reports?type=pendencias&format=csv"
+                className="px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-50"
+              >
+                Baixar CSV
+              </a>
+            </div>
+
+            {pendReport && (
+              <div className="bg-white rounded-xl p-4 shadow border space-y-3">
+                <h3 className="font-semibold">Relatório de pendências</h3>
+                <p className="text-sm text-slate-600">
+                  Total: {pendReport.summary.total} · Resolvidas: {pendReport.summary.resolvidas} ·
+                  Pendentes: {pendReport.summary.pendentes}
+                </p>
+                <div className="max-h-64 overflow-auto text-xs space-y-1">
+                  {pendReport.rows.map((r, i) => (
+                    <p key={i} className="border-b border-slate-100 py-1">
+                      <strong>{r.funcionario}</strong> ({r.prontuario}) — {r.titulo} — {r.status}
+                      {r.resolvidaEm !== "—" && ` · Resolvida: ${r.resolvidaEm}`}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
                 try {
                   await apiPost("/api/admin/pendencias", pendForm);
-                  setPendForm({ prontuario: "", title: "", description: "", dueDate: "" });
+                  setPendForm({ prontuario: "", title: "", description: "", dueDate: "", broadcast: false });
                 } catch (err) {
                   setError(err instanceof Error ? err.message : "Erro");
                 }
@@ -714,13 +814,23 @@ export function AdminPanel() {
               className="bg-white rounded-xl p-4 shadow border space-y-3"
             >
               <h2 className="font-semibold">Nova pendência</h2>
-              <input
-                placeholder="Prontuário do funcionário"
-                value={pendForm.prontuario}
-                onChange={(e) => setPendForm({ ...pendForm, prontuario: e.target.value })}
-                required
-                className="w-full px-3 py-2 rounded-lg border"
-              />
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={pendForm.broadcast}
+                  onChange={(e) => setPendForm({ ...pendForm, broadcast: e.target.checked })}
+                />
+                Enviar para todos os funcionários
+              </label>
+              {!pendForm.broadcast && (
+                <input
+                  placeholder="Prontuário do funcionário"
+                  value={pendForm.prontuario}
+                  onChange={(e) => setPendForm({ ...pendForm, prontuario: e.target.value })}
+                  required={!pendForm.broadcast}
+                  className="w-full px-3 py-2 rounded-lg border"
+                />
+              )}
               <input
                 placeholder="Título"
                 value={pendForm.title}
@@ -743,23 +853,25 @@ export function AdminPanel() {
                 className="w-full px-3 py-2 rounded-lg border"
               />
               <button type="submit" className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm">
-                Criar pendência
+                {pendForm.broadcast ? "Enviar para todos" : "Criar pendência"}
               </button>
             </form>
 
             <div className="space-y-2">
               {pendencias.map((p) => (
-                <div key={p.id} className="bg-white rounded-lg p-3 border text-sm flex justify-between">
+                <div key={p.id} className="bg-white rounded-lg p-3 border text-sm flex justify-between gap-3">
                   <div>
                     <p className="font-medium">{p.title}</p>
                     <p className="text-slate-500">
-                      {p.user.name} ({p.user.prontuario}) · Prazo: {formatDate(p.dueDate)}
+                      {p.user.name} ({p.user.prontuario}) · {p.status === "DONE" ? "Concluída" : "Aberta"} ·
+                      Prazo: {formatDate(p.dueDate)}
+                      {p.resolvedAt && ` · Resolvida: ${formatDate(p.resolvedAt)}`}
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => apiDelete(`/api/admin/pendencias?id=${p.id}`).catch((e) => setError(e.message))}
-                    className="text-red-600 text-xs"
+                    className="text-red-600 text-xs shrink-0"
                   >
                     Excluir
                   </button>
@@ -771,6 +883,48 @@ export function AdminPanel() {
 
         {section === "alertas" && (
           <div className="space-y-6">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const res = await fetch("/api/admin/reports?type=alertas");
+                    if (!res.ok) throw new Error("Erro ao gerar relatório.");
+                    setAlertReport(await res.json());
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : "Erro");
+                  }
+                }}
+                className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm"
+              >
+                Gerar relatório de ciência
+              </button>
+              <a
+                href="/api/admin/reports?type=alertas&format=csv"
+                className="px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-50"
+              >
+                Baixar CSV
+              </a>
+            </div>
+
+            {alertReport && (
+              <div className="bg-white rounded-xl p-4 shadow border space-y-3">
+                <h3 className="font-semibold">Relatório de alertas</h3>
+                <p className="text-sm text-slate-600">
+                  Total: {alertReport.summary.total} · Com ciência: {alertReport.summary.comCiencia} ·
+                  Sem ciência: {alertReport.summary.semCiencia}
+                </p>
+                <div className="max-h-64 overflow-auto text-xs space-y-1">
+                  {alertReport.rows.map((r, i) => (
+                    <p key={i} className="border-b border-slate-100 py-1">
+                      <strong>{r.funcionario}</strong> ({r.prontuario}) — {r.titulo} — Ciência: {r.ciencia}
+                      {r.cienciaEm !== "—" && ` (${r.cienciaEm})`}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
@@ -831,23 +985,31 @@ export function AdminPanel() {
             </form>
 
             <div className="space-y-2">
-              {alertas.map((a) => (
-                <div key={a.id} className="bg-white rounded-lg p-3 border text-sm flex justify-between">
-                  <div>
-                    <p className="font-medium">{a.title}</p>
-                    <p className="text-slate-500">
-                      {a.user ? `${a.user.name}` : "Broadcast"} · {a.type}
-                    </p>
+              {alertas.map((a) => {
+                const ackCount = a.acknowledgments?.length ?? (a.acknowledgedAt ? 1 : 0);
+                return (
+                  <div key={a.id} className="bg-white rounded-lg p-3 border text-sm flex justify-between gap-3">
+                    <div>
+                      <p className="font-medium">{a.title}</p>
+                      <p className="text-slate-500">
+                        {a.user ? `${a.user.name} (${a.user.prontuario})` : "Broadcast"} · {a.type}
+                        {a.user
+                          ? a.acknowledgedAt
+                            ? " · Ciência dada"
+                            : " · Sem ciência"
+                          : ` · ${ackCount} ciência(s)`}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => apiDelete(`/api/admin/alertas?id=${a.id}`).catch((e) => setError(e.message))}
+                      className="text-red-600 text-xs shrink-0"
+                    >
+                      Excluir
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => apiDelete(`/api/admin/alertas?id=${a.id}`).catch((e) => setError(e.message))}
-                    className="text-red-600 text-xs"
-                  >
-                    Excluir
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -897,10 +1059,232 @@ export function AdminPanel() {
             <div className="space-y-2">
               {challenges.map((c) => (
                 <div key={c.id} className="bg-white rounded-lg p-3 border text-sm">
-                  <p className="font-medium">
-                    {c.title} {c.active && <span className="text-green-600 text-xs">(ativo)</span>}
-                  </p>
-                  <p className="text-slate-500">{c.points} pts · Semana: {formatDate(c.weekStart)}</p>
+                  {editingChallengeId === c.id ? (
+                    <form
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        try {
+                          await apiPut("/api/admin/challenges", { id: c.id, ...editChallengeForm });
+                          setEditingChallengeId(null);
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : "Erro");
+                        }
+                      }}
+                      className="space-y-2"
+                    >
+                      <input
+                        value={editChallengeForm.title}
+                        onChange={(e) =>
+                          setEditChallengeForm({ ...editChallengeForm, title: e.target.value })
+                        }
+                        className="w-full px-2 py-1 border rounded"
+                      />
+                      <textarea
+                        value={editChallengeForm.description}
+                        onChange={(e) =>
+                          setEditChallengeForm({ ...editChallengeForm, description: e.target.value })
+                        }
+                        rows={2}
+                        className="w-full px-2 py-1 border rounded"
+                      />
+                      <input
+                        type="number"
+                        value={editChallengeForm.points}
+                        onChange={(e) =>
+                          setEditChallengeForm({ ...editChallengeForm, points: Number(e.target.value) })
+                        }
+                        className="w-full px-2 py-1 border rounded"
+                      />
+                      <label className="flex items-center gap-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={editChallengeForm.active}
+                          onChange={(e) =>
+                            setEditChallengeForm({ ...editChallengeForm, active: e.target.checked })
+                          }
+                        />
+                        Ativo
+                      </label>
+                      <div className="flex gap-2">
+                        <button type="submit" className="text-green-700 text-xs">
+                          Salvar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingChallengeId(null)}
+                          className="text-slate-500 text-xs"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="flex justify-between gap-3">
+                      <div>
+                        <p className="font-medium">
+                          {c.title} {c.active && <span className="text-green-600 text-xs">(ativo)</span>}
+                        </p>
+                        <p className="text-slate-500">{c.points} pts · Semana: {formatDate(c.weekStart)}</p>
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingChallengeId(c.id);
+                            setEditChallengeForm({
+                              title: c.title,
+                              description: c.description,
+                              points: c.points,
+                              active: c.active,
+                            });
+                          }}
+                          className="text-blue-600 text-xs"
+                        >
+                          Editar
+                        </button>
+                        {!c.active && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              apiDelete(`/api/admin/challenges?id=${c.id}`).catch((e) => setError(e.message))
+                            }
+                            className="text-red-600 text-xs"
+                          >
+                            Excluir
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const opts = quizForm.options.map((o) => o.trim()).filter(Boolean);
+                try {
+                  if (editingQuizId) {
+                    await apiPut("/api/admin/quiz-questions", {
+                      id: editingQuizId,
+                      question: quizForm.question,
+                      options: opts,
+                      correct: quizForm.correct,
+                      active: quizForm.active,
+                    });
+                    setEditingQuizId(null);
+                  } else {
+                    await apiPost("/api/admin/quiz-questions", {
+                      question: quizForm.question,
+                      options: opts,
+                      correct: quizForm.correct,
+                      active: quizForm.active,
+                    });
+                  }
+                  setQuizForm({ question: "", options: ["", "", "", ""], correct: 0, active: true });
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Erro");
+                }
+              }}
+              className="bg-white rounded-xl p-4 shadow border space-y-3"
+            >
+              <h2 className="font-semibold">
+                {editingQuizId ? "Editar pergunta do quiz" : "Nova pergunta do quiz"}
+              </h2>
+              <textarea
+                placeholder="Pergunta"
+                value={quizForm.question}
+                onChange={(e) => setQuizForm({ ...quizForm, question: e.target.value })}
+                required
+                rows={2}
+                className="w-full px-3 py-2 rounded-lg border"
+              />
+              {quizForm.options.map((opt, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="quiz-correct"
+                    checked={quizForm.correct === i}
+                    onChange={() => setQuizForm({ ...quizForm, correct: i })}
+                  />
+                  <input
+                    placeholder={`Opção ${i + 1}`}
+                    value={opt}
+                    onChange={(e) => {
+                      const next = [...quizForm.options];
+                      next[i] = e.target.value;
+                      setQuizForm({ ...quizForm, options: next });
+                    }}
+                    className="flex-1 px-3 py-2 rounded-lg border"
+                  />
+                </div>
+              ))}
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={quizForm.active}
+                  onChange={(e) => setQuizForm({ ...quizForm, active: e.target.checked })}
+                />
+                Ativa no banco de questões
+              </label>
+              <div className="flex gap-2">
+                <button type="submit" className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm">
+                  {editingQuizId ? "Salvar pergunta" : "Adicionar pergunta"}
+                </button>
+                {editingQuizId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingQuizId(null);
+                      setQuizForm({ question: "", options: ["", "", "", ""], correct: 0, active: true });
+                    }}
+                    className="px-4 py-2 border rounded-lg text-sm"
+                  >
+                    Cancelar
+                  </button>
+                )}
+              </div>
+            </form>
+
+            <div className="space-y-2">
+              {quizQuestions.map((q) => (
+                <div key={q.id} className="bg-white rounded-lg p-3 border text-sm flex justify-between gap-3">
+                  <div>
+                    <p className="font-medium">{q.question}</p>
+                    <p className="text-slate-500 text-xs">
+                      {q.options.length} opções · Correta: {q.options[q.correct] ?? "—"} ·{" "}
+                      {q.active ? "Ativa" : "Inativa"}
+                    </p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingQuizId(q.id);
+                        const opts = [...q.options];
+                        while (opts.length < 4) opts.push("");
+                        setQuizForm({
+                          question: q.question,
+                          options: opts,
+                          correct: q.correct,
+                          active: q.active,
+                        });
+                      }}
+                      className="text-blue-600 text-xs"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        apiDelete(`/api/admin/quiz-questions?id=${q.id}`).catch((e) => setError(e.message))
+                      }
+                      className="text-red-600 text-xs"
+                    >
+                      Excluir
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

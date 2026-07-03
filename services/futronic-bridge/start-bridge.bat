@@ -11,7 +11,8 @@ echo.
 echo Origens CORS: %FUTRONIC_BRIDGE_ORIGINS%
 echo URL local:    http://127.0.0.1:8080/health
 echo.
-echo Mantenha esta janela aberta enquanto usar a biometria.
+echo Mantenha esta janela aberta no totem.
+echo O keepalive de sessao evita bloqueio Win+L por inatividade.
 echo Para encerrar, feche a janela ou pressione Ctrl+C.
 echo.
 

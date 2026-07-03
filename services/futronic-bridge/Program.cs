@@ -19,6 +19,9 @@ IFingerprintService fingerprintService = demoMode
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
 
+builder.Services.AddSingleton<SessionKeepAliveService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<SessionKeepAliveService>());
+
 var app = builder.Build();
 
 var jsonOptions = new JsonSerializerOptions
@@ -53,6 +56,34 @@ app.MapGet("/health", () =>
         ok = true,
         demoMode = fingerprintService.IsDemoMode,
         deviceConnected = fingerprintService.IsDeviceConnected,
+    }, jsonOptions);
+});
+
+app.MapGet("/keepalive/status", (SessionKeepAliveService keepAlive) =>
+{
+    return Results.Json(new
+    {
+        enabled = keepAlive.IsEnabled,
+        intervalSeconds = keepAlive.IntervalSeconds,
+        lastPulseAt = keepAlive.LastPulseAt,
+        pulseCount = keepAlive.PulseCount,
+        purpose = "Evita bloqueio de sessão Windows (Win+L) por inatividade no totem",
+    }, jsonOptions);
+});
+
+app.MapPost("/keepalive/pulse", (SessionKeepAliveService keepAlive) =>
+{
+    if (!keepAlive.IsEnabled)
+    {
+        return Results.Json(new { ok = false, message = "Keepalive desabilitado." }, jsonOptions);
+    }
+
+    keepAlive.PulseOnce();
+    return Results.Json(new
+    {
+        ok = true,
+        lastPulseAt = keepAlive.LastPulseAt,
+        pulseCount = keepAlive.PulseCount,
     }, jsonOptions);
 });
 

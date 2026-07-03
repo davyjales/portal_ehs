@@ -59,6 +59,8 @@ type Challenge = {
   points: number;
   completed: boolean;
   inProgress: boolean;
+  weeklyBlocked?: boolean;
+  blockedMessage?: string;
   questions: QuizQuestion[];
   startedAt: string | null;
   earnedPoints?: number;
@@ -693,10 +695,15 @@ function OneUpTab() {
           {challenge.completed ? (
             <>
               <p className="text-sm text-slate-600 mt-2">{challenge.description}</p>
+              {challenge.weeklyBlocked && challenge.blockedMessage && (
+                <p className="mt-4 text-amber-800 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg text-sm">
+                  {challenge.blockedMessage}
+                </p>
+              )}
               {success && (
                 <p className="mt-4 text-green-700 bg-green-50 px-3 py-2 rounded-lg text-sm">{success}</p>
               )}
-              {!success && (
+              {!success && !challenge.weeklyBlocked && (
                 <p className="mt-4 text-green-700 bg-green-50 px-3 py-2 rounded-lg text-sm">
                   ✓ Desafio concluído nesta semana!
                 </p>
@@ -770,8 +777,8 @@ function OneUpTab() {
                   <li>Os pontos são proporcionais ao número de acertos (até {challenge.points} pts).</li>
                   <li>Ao concluir, você verá sua pontuação e o gabarito de cada pergunta.</li>
                   <li>O cronômetro inicia ao clicar em <strong>Iniciar Quiz</strong> e não pausa ao trocar de aba.</li>
+                  <li>Cada colaborador pode realizar <strong>apenas 1 quiz por semana</strong>.</li>
                   <li>Em caso de empate no ranking mensal, vence quem respondeu mais rápido.</li>
-                  <li>Recarregar a página ou entrar novamente gera novas perguntas e reinicia o tempo.</li>
                 </ul>
                 <p className="text-purple-700 font-medium">
                   Pronto para participar? Clique abaixo quando quiser começar.
