@@ -132,6 +132,13 @@ function QuizReviewPanel({
   correctCount: number;
   totalQuestions: number;
 }) {
+  const correctQuestions = review
+    .map((item, qi) => ({ item, qi }))
+    .filter(({ item }) => item.userAnswer === item.correctAnswer);
+  const wrongQuestions = review
+    .map((item, qi) => ({ item, qi }))
+    .filter(({ item }) => item.userAnswer !== item.correctAnswer);
+
   return (
     <div className="mt-4 space-y-4">
       <div className="rounded-lg bg-purple-50 border border-purple-200 px-4 py-3">
@@ -141,39 +148,122 @@ function QuizReviewPanel({
         </p>
       </div>
 
-      <div className="space-y-5">
-        {review.map((item, qi) => (
-          <div key={item.questionId} className="border border-slate-100 rounded-lg p-4">
-            <p className="text-sm font-medium text-slate-800 mb-3">
-              {qi + 1}. {item.question}
-            </p>
-            <div className="space-y-2">
-              {item.options.map((opt, oi) => {
-                const isCorrect = oi === item.correctAnswer;
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-3">
+          <p className="text-xs font-semibold text-green-800 uppercase tracking-wide">
+            Acertou ({correctQuestions.length})
+          </p>
+          {correctQuestions.length > 0 ? (
+            <ul className="mt-2 space-y-1 text-sm text-green-900">
+              {correctQuestions.map(({ item, qi }) => (
+                <li key={item.questionId}>
+                  <span className="font-medium">Pergunta {qi + 1}:</span>{" "}
+                  {item.options[item.userAnswer]}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm text-green-800">Nenhuma pergunta acertada.</p>
+          )}
+        </div>
 
-                return (
-                  <div
-                    key={oi}
-                    className={`flex items-center gap-2 text-sm rounded-lg px-3 py-2 ${
-                      isCorrect
-                        ? "bg-green-50 text-green-900 border border-green-200"
-                        : "bg-red-50 text-red-900 border border-red-200"
-                    }`}
-                  >
-                    <span
-                      className={`shrink-0 w-6 h-6 rounded-full text-white flex items-center justify-center text-xs font-bold ${
-                        isCorrect ? "bg-green-500" : "bg-red-500"
-                      }`}
+        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
+          <p className="text-xs font-semibold text-red-800 uppercase tracking-wide">
+            Errou ({wrongQuestions.length})
+          </p>
+          {wrongQuestions.length > 0 ? (
+            <ul className="mt-2 space-y-1 text-sm text-red-900">
+              {wrongQuestions.map(({ item, qi }) => (
+                <li key={item.questionId}>
+                  <span className="font-medium">Pergunta {qi + 1}:</span>{" "}
+                  {item.userAnswer >= 0
+                    ? item.options[item.userAnswer]
+                    : "Sem resposta"}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm text-red-800">Nenhum erro — parabéns!</p>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-5">
+        <p className="text-sm font-semibold text-slate-700">Gabarito detalhado</p>
+        {review.map((item, qi) => {
+          const gotRight = item.userAnswer === item.correctAnswer;
+
+          return (
+            <div
+              key={item.questionId}
+              className={`border rounded-lg p-4 ${
+                gotRight ? "border-green-200 bg-green-50/30" : "border-red-200 bg-red-50/30"
+              }`}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+                <p className="text-sm font-medium text-slate-800">
+                  {qi + 1}. {item.question}
+                </p>
+                <span
+                  className={`shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full ${
+                    gotRight
+                      ? "bg-green-100 text-green-800 border border-green-200"
+                      : "bg-red-100 text-red-800 border border-red-200"
+                  }`}
+                >
+                  {gotRight ? "Acertou" : "Errou"}
+                </span>
+              </div>
+              <div className="space-y-2">
+                {item.options.map((opt, oi) => {
+                  const isCorrect = oi === item.correctAnswer;
+                  const isUserAnswer = oi === item.userAnswer;
+
+                  let optionClass =
+                    "bg-slate-50 text-slate-700 border border-slate-200";
+                  if (isCorrect) {
+                    optionClass = "bg-green-50 text-green-900 border border-green-200";
+                  } else if (isUserAnswer) {
+                    optionClass = "bg-red-50 text-red-900 border border-red-200";
+                  }
+
+                  return (
+                    <div
+                      key={oi}
+                      className={`flex items-center gap-2 text-sm rounded-lg px-3 py-2 ${optionClass}`}
                     >
-                      {isCorrect ? "✔️" : "✕"}
-                    </span>
-                    <span>{opt}</span>
-                  </div>
-                );
-              })}
+                      <span
+                        className={`shrink-0 w-6 h-6 rounded-full text-white flex items-center justify-center text-xs font-bold ${
+                          isCorrect
+                            ? "bg-green-500"
+                            : isUserAnswer
+                              ? "bg-red-500"
+                              : "bg-slate-300"
+                        }`}
+                      >
+                        {isCorrect ? "✓" : isUserAnswer ? "✕" : ""}
+                      </span>
+                      <span className="flex-1">{opt}</span>
+                      {isUserAnswer && isCorrect && (
+                        <span className="text-xs font-medium shrink-0 text-green-700">
+                          Sua resposta ✓
+                        </span>
+                      )}
+                      {isUserAnswer && !isCorrect && (
+                        <span className="text-xs font-medium shrink-0">Sua resposta</span>
+                      )}
+                      {isCorrect && !isUserAnswer && (
+                        <span className="text-xs font-medium shrink-0 text-green-700">
+                          Resposta correta
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
