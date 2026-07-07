@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { AppHeader, type TabId } from "@/components/layout/AppHeader";
 import { TabContent } from "@/components/layout/TabContent";
+import { TouchKeyboardActivator } from "@/components/layout/TouchKeyboardActivator";
 import { EHSSelector } from "@/components/ehs/EHSSelector";
 import { initQuizPageTokenOnLoad } from "@/lib/quiz-client";
 
@@ -22,6 +23,7 @@ export default function EmployeeAppPage() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      <TouchKeyboardActivator />
       <AppHeader userName={userName} activeTab={activeTab} onTabChange={setActiveTab} />
 
       {activeTab === "inicio" ? (

@@ -74,6 +74,7 @@ $env:FUTRONIC_KEEPALIVE_INTERVAL_SEC = "120"
 | GET | `/health` | Status do serviço e leitor |
 | GET | `/keepalive/status` | Status do anti-bloqueio Win+L |
 | POST | `/keepalive/pulse` | Pulso manual de atividade |
+| POST | `/touch-keyboard/show` | Abre o teclado touch do Windows (TabTip) |
 | GET | `/scan/single` | Captura uma digital |
 | POST | `/verify` | Compara live vs template armazenado |
 | POST | `/identify` | Identifica usuário (1:N) |

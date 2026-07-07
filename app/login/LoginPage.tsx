@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { rotateQuizPageToken } from "@/lib/quiz-client";
+import { TouchKeyboardActivator } from "@/components/layout/TouchKeyboardActivator";
 import { touchKeyboardNumericProps, touchKeyboardProps } from "@/lib/touch-keyboard";
 
 export default function LoginPage() {
@@ -67,6 +68,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
+      <TouchKeyboardActivator />
       <div className="w-full max-w-md">
         <div className="bg-white/90 backdrop-blur rounded-2xl shadow-xl p-8 border border-white/60">
           <Link href="/" className="text-sm text-slate-500 hover:text-slate-700 mb-4 inline-block">

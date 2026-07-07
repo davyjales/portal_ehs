@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using FutronicBridge.Native;
 using FutronicBridge.Services;
 
 var demoMode = args.Contains("--demo") ||
@@ -84,6 +85,16 @@ app.MapPost("/keepalive/pulse", (SessionKeepAliveService keepAlive) =>
         ok = true,
         lastPulseAt = keepAlive.LastPulseAt,
         pulseCount = keepAlive.PulseCount,
+    }, jsonOptions);
+});
+
+app.MapPost("/touch-keyboard/show", () =>
+{
+    var shown = WindowsTouchKeyboard.Show();
+    return Results.Json(new
+    {
+        ok = shown,
+        message = shown ? "Teclado touch acionado." : "Não foi possível abrir o teclado touch.",
     }, jsonOptions);
 });
 
