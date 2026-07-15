@@ -3,26 +3,34 @@ using System.Runtime.InteropServices;
 namespace FutronicBridge.Native;
 
 /// <summary>
-/// Constants from Futronic FTRAPI.h (WorkedEx SDK).
+/// Bindings for Futronic WorkedEx SDK (ftrScanAPI.dll + FTRAPI.dll, x86).
+/// Constants and callback match FTRAPI.h / SDK Worked Example.
 /// </summary>
 internal static class FtrConstants
 {
     public const int RetcodeOk = 0;
+    public const int RetcodeCanceledByUser = 8;
 
+    // FTR_PARAM_* (enum starts at 1)
     public const int ParamImageWidth = 1;
     public const int ParamImageHeight = 2;
     public const int ParamImageSize = 3;
-    public const int ParamMaxTemplateSize = 4;
-    public const int ParamMaxModels = 5;
-    public const int ParamMaxFarRequested = 7;
-    public const int ParamCbControl = 8;
-    public const int ParamCbFrameSource = 10;
+    public const int ParamCbFrameSource = 4;
+    public const int ParamCbControl = 5;
+    public const int ParamMaxTemplateSize = 6;
+    public const int ParamMaxModels = 7;
+    public const int ParamMaxFarRequested = 10;
 
-    public const int FrameSourceFutronicUsb = 2;
+    // Frame sources
+    public const int FrameSourceUndefined = 0;
+    public const int FrameSourceFutronicUsb = 1;
 
+    // Purpose / responses
     public const int PurposeEnroll = 1;
+    public const int Continue = 1;
+    public const int Cancel = 2;
 
-    public const int DefaultFarRequested = 107374182; // FAR ~ 0.05
+    public const int DefaultFarRequested = 107374182; // ~0.05 FAR
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -32,17 +40,25 @@ internal struct FtrData
     public IntPtr PData;
 }
 
+/// <summary>
+/// FTR_CB_STATE_CONTROL — must return void and write FTR_CONTINUE/CANCEL to *pResponse.
+/// </summary>
 [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-internal delegate int FtrStateCallback(IntPtr context, int state, IntPtr response, IntPtr userParam);
+internal delegate void FtrStateCallback(
+    IntPtr context,
+    int stateMask,
+    IntPtr response,
+    int signal,
+    IntPtr bitmap);
 
 internal static class FutronicNative
 {
     private const int DefaultTemplateSize = 8192;
-    private const int FingerPollMs = 100;
 
     private static readonly object Sync = new();
     private static bool _initialized;
     private static FtrStateCallback? _stateCallback;
+    private static long _captureDeadlineMs;
 
     [DllImport("ftrScanAPI.dll", CallingConvention = CallingConvention.StdCall)]
     private static extern IntPtr ftrScanOpenDevice();
@@ -50,26 +66,20 @@ internal static class FutronicNative
     [DllImport("ftrScanAPI.dll", CallingConvention = CallingConvention.StdCall)]
     private static extern void ftrScanCloseDevice(IntPtr handle);
 
-    [DllImport("ftrScanAPI.dll", CallingConvention = CallingConvention.StdCall)]
-    private static extern bool ftrScanIsFingerPresent(IntPtr handle, IntPtr frameParameters);
-
     [DllImport("FTRAPI.dll", CallingConvention = CallingConvention.StdCall)]
     private static extern int FTRInitialize();
 
     [DllImport("FTRAPI.dll", CallingConvention = CallingConvention.StdCall)]
     private static extern void FTRTerminate();
 
-    [DllImport("FTRAPI.dll", CallingConvention = CallingConvention.StdCall, EntryPoint = "FTRSetParam")]
-    private static extern int FTRSetParamInt(int param, int value);
-
-    [DllImport("FTRAPI.dll", CallingConvention = CallingConvention.StdCall, EntryPoint = "FTRSetParam")]
-    private static extern int FTRSetParamCallback(int param, FtrStateCallback callback);
+    [DllImport("FTRAPI.dll", CallingConvention = CallingConvention.StdCall)]
+    private static extern int FTRSetParam(int param, IntPtr value);
 
     [DllImport("FTRAPI.dll", CallingConvention = CallingConvention.StdCall)]
     private static extern int FTRGetParam(int param, out int value);
 
     [DllImport("FTRAPI.dll", CallingConvention = CallingConvention.StdCall)]
-    private static extern int FTREnroll(int context, int purpose, ref FtrData template);
+    private static extern int FTREnroll(IntPtr context, int purpose, ref FtrData template);
 
     [DllImport("FTRAPI.dll", CallingConvention = CallingConvention.StdCall)]
     private static extern int FTRMatchingTemplate(ref FtrData template1, ref FtrData template2, out int matched);
@@ -77,6 +87,7 @@ internal static class FutronicNative
     static FutronicNative()
     {
         TryConfigureSdkPath();
+        // Keep delegate alive for native callback lifetime.
         _stateCallback = OnStateControl;
     }
 
@@ -85,27 +96,59 @@ internal static class FutronicNative
         var sdkPath = Environment.GetEnvironmentVariable("FUTRONIC_SDK_PATH");
         if (string.IsNullOrWhiteSpace(sdkPath) || !Directory.Exists(sdkPath))
         {
-            return File.Exists(Path.Combine(AppContext.BaseDirectory, "ftrScanAPI.dll"));
+            EnsureDataBaseFolder(AppContext.BaseDirectory);
+            return File.Exists(Path.Combine(AppContext.BaseDirectory, "ftrScanAPI.dll"))
+                   && File.Exists(Path.Combine(AppContext.BaseDirectory, "FTRAPI.dll"));
         }
 
         NativeLibrary.SetDllImportResolver(typeof(FutronicNative).Assembly, (libraryName, _, _) =>
         {
-            var candidate = Path.Combine(sdkPath, libraryName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            var fileName = libraryName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
                 ? libraryName
-                : libraryName + ".dll");
+                : libraryName + ".dll";
+            var candidate = Path.Combine(sdkPath, fileName);
             return File.Exists(candidate) ? NativeLibrary.Load(candidate) : IntPtr.Zero;
         });
 
-        return File.Exists(Path.Combine(sdkPath, "ftrScanAPI.dll"));
+        EnsureDataBaseFolder(sdkPath);
+        EnsureDataBaseFolder(AppContext.BaseDirectory);
+        return File.Exists(Path.Combine(sdkPath, "ftrScanAPI.dll"))
+               && File.Exists(Path.Combine(sdkPath, "FTRAPI.dll"));
     }
 
-    private static int OnStateControl(IntPtr context, int state, IntPtr response, IntPtr userParam)
+    private static void EnsureDataBaseFolder(string root)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "DataBase", "Bmp"));
+        }
+        catch
+        {
+            // Optional WorkedEx folder; ignore if not writable.
+        }
+    }
+
+    private static void OnStateControl(
+        IntPtr context,
+        int stateMask,
+        IntPtr response,
+        int signal,
+        IntPtr bitmap)
     {
         _ = context;
-        _ = state;
-        _ = response;
-        _ = userParam;
-        return FtrConstants.RetcodeOk;
+        _ = stateMask;
+        _ = signal;
+        _ = bitmap;
+
+        if (response == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var code = Environment.TickCount64 > _captureDeadlineMs
+            ? FtrConstants.Cancel
+            : FtrConstants.Continue;
+        Marshal.WriteInt32(response, code);
     }
 
     public static bool EnsureInitialized(out string? error)
@@ -120,30 +163,35 @@ internal static class FutronicNative
 
             try
             {
-                if (FTRInitialize() != FtrConstants.RetcodeOk)
-                {
-                    error = "Falha ao inicializar FTRAPI.";
-                    return false;
-                }
-
-                if (FTRSetParamInt(FtrConstants.ParamCbFrameSource, FtrConstants.FrameSourceFutronicUsb) !=
-                    FtrConstants.RetcodeOk)
-                {
-                    error = "Falha ao configurar leitor USB (FSD_FUTRONIC_USB).";
-                    return false;
-                }
-
-                FTRSetParamInt(FtrConstants.ParamMaxModels, 3);
-
                 if (_stateCallback == null)
                 {
                     error = "Callback de controle não inicializado.";
                     return false;
                 }
 
-                if (FTRSetParamCallback(FtrConstants.ParamCbControl, _stateCallback) != FtrConstants.RetcodeOk)
+                var initRc = FTRInitialize();
+                if (initRc != FtrConstants.RetcodeOk)
                 {
-                    error = "Falha ao registrar callback de captura.";
+                    error = $"Falha ao inicializar FTRAPI (código {initRc}).";
+                    return false;
+                }
+
+                var frameRc = FTRSetParam(
+                    FtrConstants.ParamCbFrameSource,
+                    new IntPtr(FtrConstants.FrameSourceFutronicUsb));
+                if (frameRc != FtrConstants.RetcodeOk)
+                {
+                    error = $"Falha ao configurar leitor USB (código {frameRc}).";
+                    return false;
+                }
+
+                FTRSetParam(FtrConstants.ParamMaxModels, new IntPtr(3));
+
+                var callbackPtr = Marshal.GetFunctionPointerForDelegate(_stateCallback);
+                var cbRc = FTRSetParam(FtrConstants.ParamCbControl, callbackPtr);
+                if (cbRc != FtrConstants.RetcodeOk)
+                {
+                    error = $"Falha ao registrar callback de captura (código {cbRc}).";
                     return false;
                 }
 
@@ -153,7 +201,12 @@ internal static class FutronicNative
             }
             catch (DllNotFoundException ex)
             {
-                error = $"DLL Futronic não encontrada: {ex.Message}";
+                error = $"DLL Futronic não encontrada. Copie ftrScanAPI.dll e FTRAPI.dll do WorkedEx para bin\\Debug\\net8.0\\. Detalhe: {ex.Message}";
+                return false;
+            }
+            catch (BadImageFormatException)
+            {
+                error = "DLL Futronic incompatível (precisa ser 32-bit / x86). Use PlatformTarget=x86 e as DLLs do WorkedEx.";
                 return false;
             }
             catch (Exception ex)
@@ -166,31 +219,34 @@ internal static class FutronicNative
 
     public static (bool Success, byte[]? Template, string? Error) CaptureTemplate(int timeoutMs = 60000)
     {
-        if (!EnsureInitialized(out var initError))
+        if (timeoutMs <= 0)
         {
-            return (false, null, initError);
+            timeoutMs = 60000;
         }
 
-        try
+        lock (Sync)
         {
-            var enroll = EnrollTemplate();
-            if (enroll.Success)
+            if (!EnsureInitialized(out var initError))
             {
-                return enroll;
+                return (false, null, initError);
             }
 
-            return CaptureTemplateFromScan(timeoutMs);
-        }
-        catch (Exception ex)
-        {
-            return (false, null, ex.Message);
+            try
+            {
+                return EnrollTemplate(timeoutMs);
+            }
+            catch (Exception ex)
+            {
+                return (false, null, ex.Message);
+            }
         }
     }
 
-    private static (bool Success, byte[]? Template, string? Error) EnrollTemplate()
+    private static (bool Success, byte[]? Template, string? Error) EnrollTemplate(int timeoutMs)
     {
         var templateSize = GetMaxTemplateSize();
         var buffer = Marshal.AllocHGlobal(templateSize);
+        _captureDeadlineMs = Environment.TickCount64 + timeoutMs;
 
         try
         {
@@ -200,26 +256,42 @@ internal static class FutronicNative
                 PData = buffer,
             };
 
-            var rc = FTREnroll(0, FtrConstants.PurposeEnroll, ref template);
-            if (rc == FtrConstants.RetcodeOk && template.DwSize > 0)
+            var rc = FTREnroll(IntPtr.Zero, FtrConstants.PurposeEnroll, ref template);
+
+            if (rc == FtrConstants.RetcodeCanceledByUser || Environment.TickCount64 > _captureDeadlineMs)
             {
-                var bytes = new byte[template.DwSize];
-                Marshal.Copy(template.PData, bytes, 0, template.DwSize);
-                return (true, bytes, null);
+                return (false, null, "Tempo esgotado aguardando digital no leitor.");
             }
 
-            return (false, null, $"FTREnroll falhou (código {rc}).");
+            if (rc != FtrConstants.RetcodeOk)
+            {
+                return (false, null,
+                    $"Coloque o dedo no leitor e tente novamente (código {rc}).");
+            }
+
+            if (template.DwSize <= 0 || template.PData == IntPtr.Zero)
+            {
+                return (false, null, "Captura concluída sem template válido.");
+            }
+
+            var bytes = new byte[template.DwSize];
+            Marshal.Copy(template.PData, bytes, 0, template.DwSize);
+            return (true, bytes, null);
         }
         finally
         {
+            _captureDeadlineMs = 0;
             Marshal.FreeHGlobal(buffer);
         }
     }
 
     private static int GetMaxTemplateSize()
     {
+        FTRSetParam(FtrConstants.ParamMaxModels, new IntPtr(3));
+
         if (FTRGetParam(FtrConstants.ParamMaxTemplateSize, out var templateSize) == FtrConstants.RetcodeOk &&
-            templateSize > 0)
+            templateSize > 64 &&
+            templateSize <= 65536)
         {
             return templateSize;
         }
@@ -227,115 +299,82 @@ internal static class FutronicNative
         return DefaultTemplateSize;
     }
 
-    private static (bool Success, byte[]? Template, string? Error) CaptureTemplateFromScan(int timeoutMs)
-    {
-        IntPtr handle = IntPtr.Zero;
-
-        try
-        {
-            handle = ftrScanOpenDevice();
-            if (handle == IntPtr.Zero)
-            {
-                return (false, null, "Não foi possível abrir o leitor Futronic.");
-            }
-
-            var deadline = Environment.TickCount64 + timeoutMs;
-
-            while (Environment.TickCount64 < deadline)
-            {
-                if (!ftrScanIsFingerPresent(handle, IntPtr.Zero))
-                {
-                    Thread.Sleep(FingerPollMs);
-                    continue;
-                }
-
-                var enroll = EnrollTemplate();
-                if (enroll.Success)
-                {
-                    return enroll;
-                }
-
-                return (false, null, enroll.Error ?? "Falha ao gerar template após detectar o dedo.");
-            }
-
-            return (false, null, "Tempo esgotado aguardando digital no leitor.");
-        }
-        finally
-        {
-            if (handle != IntPtr.Zero)
-            {
-                ftrScanCloseDevice(handle);
-            }
-        }
-    }
-
     public static (bool Matched, int Score, string? Error) MatchTemplates(byte[] live, byte[] stored)
     {
-        if (!EnsureInitialized(out var initError))
+        lock (Sync)
         {
-            return (false, 0, initError);
-        }
-
-        FTRSetParamInt(FtrConstants.ParamMaxFarRequested, FtrConstants.DefaultFarRequested);
-
-        var livePtr = Marshal.AllocHGlobal(live.Length);
-        var storedPtr = Marshal.AllocHGlobal(stored.Length);
-
-        try
-        {
-            Marshal.Copy(live, 0, livePtr, live.Length);
-            Marshal.Copy(stored, 0, storedPtr, stored.Length);
-
-            var liveData = new FtrData { DwSize = live.Length, PData = livePtr };
-            var storedData = new FtrData { DwSize = stored.Length, PData = storedPtr };
-
-            var rc = FTRMatchingTemplate(ref liveData, ref storedData, out var matched);
-            if (rc != FtrConstants.RetcodeOk)
+            if (!EnsureInitialized(out var initError))
             {
-                return (false, 0, $"Comparação de templates falhou (código {rc}).");
+                return (false, 0, initError);
             }
 
-            var isMatch = matched != 0;
-            return (isMatch, isMatch ? 100 : 0, isMatch ? null : "Digital não confere.");
-        }
-        catch (EntryPointNotFoundException)
-        {
-            return (false, 0, "FTRMatchingTemplate não está disponível no FTRAPI.dll.");
-        }
-        catch (Exception ex)
-        {
-            return (false, 0, ex.Message);
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(livePtr);
-            Marshal.FreeHGlobal(storedPtr);
+            FTRSetParam(FtrConstants.ParamMaxFarRequested, new IntPtr(FtrConstants.DefaultFarRequested));
+
+            var livePtr = Marshal.AllocHGlobal(live.Length);
+            var storedPtr = Marshal.AllocHGlobal(stored.Length);
+
+            try
+            {
+                Marshal.Copy(live, 0, livePtr, live.Length);
+                Marshal.Copy(stored, 0, storedPtr, stored.Length);
+
+                var liveData = new FtrData { DwSize = live.Length, PData = livePtr };
+                var storedData = new FtrData { DwSize = stored.Length, PData = storedPtr };
+
+                var rc = FTRMatchingTemplate(ref liveData, ref storedData, out var matched);
+                if (rc != FtrConstants.RetcodeOk)
+                {
+                    return (false, 0, $"Comparação de templates falhou (código {rc}).");
+                }
+
+                var isMatch = matched != 0;
+                return (isMatch, isMatch ? 100 : 0, isMatch ? null : "Digital não confere.");
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return (false, 0,
+                    "FTRMatchingTemplate não encontrada no FTRAPI.dll. Use a DLL completa do WorkedEx.");
+            }
+            catch (Exception ex)
+            {
+                return (false, 0, ex.Message);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(livePtr);
+                Marshal.FreeHGlobal(storedPtr);
+            }
         }
     }
 
     public static bool IsDeviceAvailable()
     {
-        if (!EnsureInitialized(out _))
-        {
-            return false;
-        }
-
-        IntPtr handle = IntPtr.Zero;
         try
         {
-            handle = ftrScanOpenDevice();
-            return handle != IntPtr.Zero;
+            // Prefer ftrScanOpenDevice before FTRAPI claims the sensor.
+            if (!_initialized)
+            {
+                var handle = ftrScanOpenDevice();
+                if (handle == IntPtr.Zero)
+                {
+                    return false;
+                }
+
+                ftrScanCloseDevice(handle);
+                return true;
+            }
+
+            if (!EnsureInitialized(out _))
+            {
+                return false;
+            }
+
+            return FTRGetParam(FtrConstants.ParamImageWidth, out var width) == FtrConstants.RetcodeOk
+                   && width > 0;
         }
         catch
         {
             return false;
-        }
-        finally
-        {
-            if (handle != IntPtr.Zero)
-            {
-                ftrScanCloseDevice(handle);
-            }
         }
     }
 

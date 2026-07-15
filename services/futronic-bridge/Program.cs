@@ -98,32 +98,56 @@ app.MapPost("/touch-keyboard/show", () =>
     }, jsonOptions);
 });
 
-app.MapGet("/scan/single", (HttpContext context) =>
+app.MapGet("/scan/single", async (HttpContext context) =>
 {
+    // Captura pode levar até ~60s aguardando o dedo.
+    context.RequestAborted.Register(() => { });
+    using var cts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+    cts.CancelAfter(TimeSpan.FromMinutes(2));
+
     var timeoutMs = int.TryParse(context.Request.Query["timeoutMs"], out var timeout) ? timeout : 60000;
 
-    if (fingerprintService is DemoFingerprintService demo &&
-        int.TryParse(context.Request.Query["profile"], out var profile))
+    try
     {
-        var result = demo.ScanSingleForProfile(profile);
+        if (fingerprintService is DemoFingerprintService demo &&
+            int.TryParse(context.Request.Query["profile"], out var profile))
+        {
+            var result = demo.ScanSingleForProfile(profile);
+            return Results.Json(new
+            {
+                success = result.Success,
+                templateBase64 = result.TemplateBase64,
+                imageBase64 = result.ImageBase64,
+                message = result.Message,
+                demoProfile = profile,
+            }, jsonOptions);
+        }
+
+        var scan = await Task.Run(() => fingerprintService.ScanSingle(timeoutMs), cts.Token);
         return Results.Json(new
         {
-            success = result.Success,
-            templateBase64 = result.TemplateBase64,
-            imageBase64 = result.ImageBase64,
-            message = result.Message,
-            demoProfile = profile,
+            success = scan.Success,
+            templateBase64 = scan.TemplateBase64,
+            imageBase64 = scan.ImageBase64,
+            message = scan.Message,
         }, jsonOptions);
     }
-
-    var scan = fingerprintService.ScanSingle(timeoutMs);
-    return Results.Json(new
+    catch (OperationCanceledException)
     {
-        success = scan.Success,
-        templateBase64 = scan.TemplateBase64,
-        imageBase64 = scan.ImageBase64,
-        message = scan.Message,
-    }, jsonOptions);
+        return Results.Json(new
+        {
+            success = false,
+            message = "Tempo esgotado aguardando digital no leitor.",
+        }, jsonOptions);
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new
+        {
+            success = false,
+            message = $"Falha na captura: {ex.Message}",
+        }, jsonOptions);
+    }
 });
 
 app.MapPost("/verify", async (HttpRequest request) =>

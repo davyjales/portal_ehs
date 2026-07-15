@@ -6,15 +6,22 @@ import Link from "next/link";
 import { rotateQuizPageToken } from "@/lib/quiz-client";
 import { TouchKeyboardActivator } from "@/components/layout/TouchKeyboardActivator";
 import { touchKeyboardNumericProps, touchKeyboardProps } from "@/lib/touch-keyboard";
+import { checkBiometricStatus } from "@/lib/biometric-client";
+import BiometricLoginPanel, { BiometricRegistrationPanel } from "@/components/login/BiometricLoginPanel";
+
+type LoginMode = "prontuario" | "register-biometric" | "biometric";
 
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = searchParams.get("redirect") || "";
 
+  const [mode, setMode] = useState<LoginMode>("prontuario");
   const [prontuario, setProntuario] = useState("");
   const [password, setPassword] = useState("");
   const [requiresPassword, setRequiresPassword] = useState(false);
+  const [pendingAdminPassword, setPendingAdminPassword] = useState<string | undefined>();
+  const [pendingRole, setPendingRole] = useState<string>("EMPLOYEE");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -33,12 +40,48 @@ export default function LoginPage() {
     [redirect, router]
   );
 
-  async function handleSubmit(e: React.FormEvent) {
+  const handleLoginSuccess = useCallback(
+    (payload: { role: string }) => {
+      setError(null);
+      navigateAfterLogin(payload.role);
+    },
+    [navigateAfterLogin]
+  );
+
+  async function handleProntuarioSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
 
     try {
+      const statusRes = await checkBiometricStatus(prontuario.trim());
+      const statusData = await statusRes.json();
+
+      if (!statusRes.ok) {
+        setError(statusData.error || "Prontuário não encontrado.");
+        return;
+      }
+
+      if (statusData.requiresBiometricRegistration) {
+        if (statusData.requiresPassword && !requiresPassword) {
+          setRequiresPassword(true);
+          setError("Informe a senha de administrador para continuar.");
+          return;
+        }
+
+        if (statusData.requiresPassword && requiresPassword && !password) {
+          setError("Senha é obrigatória para administradores.");
+          return;
+        }
+
+        setPendingRole(statusData.role);
+        setPendingAdminPassword(statusData.requiresPassword ? password : undefined);
+        setMode("register-biometric");
+        return;
+      }
+
+      // Já tem biometria: pedido típico é login por digital; admin com bio pode seguir.
+      // Ainda permitem login por prontuário quando já cadastrado (fallback).
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -54,11 +97,17 @@ export default function LoginPage() {
         if (data.requiresPassword) {
           setRequiresPassword(true);
         }
+        if (data.requiresBiometricRegistration) {
+          setPendingRole(data.role ?? "EMPLOYEE");
+          setPendingAdminPassword(data.requiresPassword ? password : undefined);
+          setMode("register-biometric");
+          return;
+        }
         setError(data.error || "Erro ao entrar.");
         return;
       }
 
-      navigateAfterLogin(data.role);
+      handleLoginSuccess({ role: data.role });
     } catch {
       setError("Não foi possível conectar ao servidor.");
     } finally {
@@ -77,65 +126,119 @@ export default function LoginPage() {
 
           <h1 className="text-2xl font-bold text-slate-800 mb-1">Entrar</h1>
           <p className="text-slate-500 text-sm mb-6">
-            Informe seu prontuário para acessar o portal. Administradores devem informar a senha.
+            {mode === "register-biometric"
+              ? "Cadastre sua digital para vincular ao prontuário."
+              : mode === "biometric"
+                ? "Posicione sua digital no leitor para acessar o portal."
+                : "Informe seu prontuário para acessar o portal. No primeiro acesso, será pedido o cadastro da digital."}
           </p>
 
           {error && (
             <p className="text-red-600 text-sm bg-red-50 px-3 py-2 rounded-lg mb-4">{error}</p>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="prontuario" className="block text-sm font-medium text-slate-700 mb-1">
-                Prontuário
-              </label>
-              <input
-                id="prontuario"
-                type="text"
-                value={prontuario}
-                onChange={(e) => {
-                  setProntuario(e.target.value);
-                  if (requiresPassword) {
-                    setRequiresPassword(false);
-                    setPassword("");
-                  }
-                }}
-                required
-                autoComplete="username"
-                className="w-full px-4 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400"
-                placeholder="Ex: 289426"
-                {...touchKeyboardNumericProps()}
-              />
-            </div>
-
-            {requiresPassword && (
+          {mode === "prontuario" && (
+            <form onSubmit={handleProntuarioSubmit} className="space-y-4">
               <div>
-                <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1">
-                  Senha
+                <label htmlFor="prontuario" className="block text-sm font-medium text-slate-700 mb-1">
+                  Prontuário
                 </label>
                 <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  id="prontuario"
+                  type="text"
+                  value={prontuario}
+                  onChange={(e) => {
+                    setProntuario(e.target.value);
+                    if (requiresPassword) {
+                      setRequiresPassword(false);
+                      setPassword("");
+                    }
+                  }}
                   required
-                  autoFocus
-                  autoComplete="current-password"
+                  autoComplete="username"
                   className="w-full px-4 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400"
-                  placeholder="••••••"
-                  {...touchKeyboardProps()}
+                  placeholder="Ex: 289426"
+                  {...touchKeyboardNumericProps()}
                 />
               </div>
-            )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 rounded-xl bg-slate-800 text-white font-medium hover:bg-slate-700 disabled:opacity-60 transition-colors"
-            >
-              {loading ? "Entrando..." : "Entrar"}
-            </button>
-          </form>
+              {requiresPassword && (
+                <div>
+                  <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1">
+                    Senha
+                  </label>
+                  <input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    autoFocus
+                    autoComplete="current-password"
+                    className="w-full px-4 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400"
+                    placeholder="••••••"
+                    {...touchKeyboardProps()}
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Conta de administrador — senha obrigatória para cadastrar a digital.
+                  </p>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3 rounded-xl bg-slate-800 text-white font-medium hover:bg-slate-700 disabled:opacity-60 transition-colors"
+              >
+                {loading ? "Verificando..." : "Continuar"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("biometric");
+                  setError(null);
+                }}
+                className="w-full py-2 text-sm text-slate-500 hover:text-slate-700"
+              >
+                Já cadastrou biometria? Entrar com digital
+              </button>
+            </form>
+          )}
+
+          {mode === "register-biometric" && (
+            <BiometricRegistrationPanel
+              prontuario={prontuario.trim()}
+              password={pendingAdminPassword}
+              isAdmin={pendingRole === "ADMIN"}
+              onSuccess={(payload) => handleLoginSuccess({ role: payload.role })}
+              onError={setError}
+              onCancel={() => {
+                setMode("prontuario");
+                setError(null);
+              }}
+            />
+          )}
+
+          {mode === "biometric" && (
+            <>
+              <BiometricLoginPanel
+                onSuccess={(payload) => handleLoginSuccess({ role: payload.role })}
+                onError={setError}
+              />
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("prontuario");
+                  setError(null);
+                }}
+                className="mt-4 w-full py-2 text-sm text-slate-500 hover:text-slate-700"
+              >
+                Voltar para login com prontuário
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

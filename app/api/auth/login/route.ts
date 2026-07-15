@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { establishUserSession } from "@/lib/session-establish";
+import { establishUserSession, userHasBiometric } from "@/lib/session-establish";
 import type { Role } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
@@ -23,7 +23,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (user.role === "ADMIN") {
+    const hasBiometric = await userHasBiometric(user.id);
+
+    // Admin sem biometria: precisa de senha para seguir ao cadastro da digital.
+    if (user.role === "ADMIN" && !hasBiometric) {
       if (!password) {
         return NextResponse.json(
           { error: "Senha é obrigatória para administradores.", requiresPassword: true },
@@ -47,6 +50,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Sem biometria: o front deve encaminhar ao cadastro digital (não cria sessão ainda).
+    if (!hasBiometric) {
+      return NextResponse.json(
+        {
+          error: "Cadastre sua biometria para continuar.",
+          requiresBiometricRegistration: true,
+          userId: user.id,
+          name: user.name,
+          role: user.role,
+        },
+        { status: 403 }
+      );
+    }
+
+    // Admin com biometria: pode entrar só com prontuário (atalho); senha não é obrigatória.
     return establishUserSession({
       id: user.id,
       prontuario: user.prontuario,
