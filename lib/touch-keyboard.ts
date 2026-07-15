@@ -27,18 +27,9 @@ function invokeBridgeTouchKeyboard() {
   });
 }
 
-function windowsInputTrick(el: TextFieldElement) {
-  const wasReadOnly = el.readOnly;
-  el.readOnly = true;
-  el.focus({ preventScroll: true });
-
-  window.setTimeout(() => {
-    el.readOnly = wasReadOnly;
-    el.focus({ preventScroll: true });
-  }, 80);
-}
-
-function showVirtualKeyboard(el: TextFieldElement, invokeBridge = true) {
+function showVirtualKeyboard(el: TextFieldElement, invokeBridge = true, fromTouch = false) {
+  // Nunca usar readOnly no input: no Windows isso impede digitação física
+  // e em alguns totems deixa o campo “morto”.
   el.focus({ preventScroll: true });
 
   if ("virtualKeyboard" in navigator) {
@@ -49,22 +40,22 @@ function showVirtualKeyboard(el: TextFieldElement, invokeBridge = true) {
     }
   }
 
-  if (isWindows()) {
-    windowsInputTrick(el);
-    if (invokeBridge) {
-      invokeBridgeTouchKeyboard();
-    }
+  // Bridge / teclado touch só quando a interação veio de touch (totem).
+  if (isWindows() && fromTouch && invokeBridge) {
+    invokeBridgeTouchKeyboard();
   }
 }
 
 function bindDomElement(el: TextFieldElement) {
   const onPointerDown = (event: Event) => {
-    if (event.pointerType === "mouse" && event.buttons !== 1) return;
-    showVirtualKeyboard(el, true);
+    const pe = event as globalThis.PointerEvent;
+    if (pe.pointerType === "mouse" && pe.buttons !== 1) return;
+    const fromTouch = pe.pointerType === "touch" || pe.pointerType === "pen";
+    showVirtualKeyboard(el, true, fromTouch);
   };
 
   const onFocus = () => {
-    showVirtualKeyboard(el, false);
+    showVirtualKeyboard(el, false, false);
   };
 
   el.addEventListener("pointerdown", onPointerDown);
@@ -84,14 +75,15 @@ export function touchKeyboardProps() {
   return {
     inputMode: "text" as const,
     onFocus: (e: FocusEvent<TextFieldElement>) => {
-      showVirtualKeyboard(e.currentTarget, false);
+      showVirtualKeyboard(e.currentTarget, false, false);
     },
     onPointerDown: (e: PointerEvent<TextFieldElement>) => {
       if (e.pointerType === "mouse" && e.buttons !== 1) return;
-      showVirtualKeyboard(e.currentTarget, true);
+      const fromTouch = e.pointerType === "touch" || e.pointerType === "pen";
+      showVirtualKeyboard(e.currentTarget, true, fromTouch);
     },
     onTouchStart: (e: TouchEvent<TextFieldElement>) => {
-      showVirtualKeyboard(e.currentTarget, true);
+      showVirtualKeyboard(e.currentTarget, true, true);
     },
   };
 }
@@ -100,14 +92,15 @@ export function touchKeyboardNumericProps() {
   return {
     inputMode: "numeric" as const,
     onFocus: (e: FocusEvent<TextFieldElement>) => {
-      showVirtualKeyboard(e.currentTarget, false);
+      showVirtualKeyboard(e.currentTarget, false, false);
     },
     onPointerDown: (e: PointerEvent<TextFieldElement>) => {
       if (e.pointerType === "mouse" && e.buttons !== 1) return;
-      showVirtualKeyboard(e.currentTarget, true);
+      const fromTouch = e.pointerType === "touch" || e.pointerType === "pen";
+      showVirtualKeyboard(e.currentTarget, true, fromTouch);
     },
     onTouchStart: (e: TouchEvent<TextFieldElement>) => {
-      showVirtualKeyboard(e.currentTarget, true);
+      showVirtualKeyboard(e.currentTarget, true, true);
     },
   };
 }

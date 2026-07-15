@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("FutronicBridge")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e5a032c4c56d29d7dfb3308dcf36f1eb82fbbab8")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6fea86b15a01cfec3bbb910a65ee8ec2d6b0647d")]
 [assembly: System.Reflection.AssemblyProductAttribute("FutronicBridge")]
 [assembly: System.Reflection.AssemblyTitleAttribute("FutronicBridge")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

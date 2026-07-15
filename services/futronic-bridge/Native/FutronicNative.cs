@@ -25,8 +25,15 @@ internal static class FtrConstants
     public const int FrameSourceUndefined = 0;
     public const int FrameSourceFutronicUsb = 1;
 
-    // Purpose / responses
-    public const int PurposeEnroll = 1;
+    // Purpose (FTRAPI.h) — FTR_PURPOSE_ENROLL is 3, not 1.
+    // Passing 1 returns FTR_RETCODE_INVALID_PURPOSE (= 3).
+    public const int PurposeVerify = 1;
+    public const int PurposeIdentify = 2;
+    public const int PurposeEnroll = 3;
+
+    public const int RetcodeInvalidPurpose = 3;
+
+    // Responses written to *pResponse in FTR_CB_STATE_CONTROL
     public const int Continue = 1;
     public const int Cancel = 2;
 
@@ -265,8 +272,7 @@ internal static class FutronicNative
 
             if (rc != FtrConstants.RetcodeOk)
             {
-                return (false, null,
-                    $"Coloque o dedo no leitor e tente novamente (código {rc}).");
+                return (false, null, DescribeEnrollError(rc));
             }
 
             if (template.DwSize <= 0 || template.PData == IntPtr.Zero)
@@ -298,6 +304,19 @@ internal static class FutronicNative
 
         return DefaultTemplateSize;
     }
+
+    private static string DescribeEnrollError(int rc) => rc switch
+    {
+        1 => "Parâmetro inválido no SDK Futronic (código 1).",
+        2 => "FTRAPI já está em uso por outro processo (código 2). Feche o WorkedEx e tente de novo.",
+        3 => "Propósito de cadastro inválido / rejeitado pelo SDK (código 3).",
+        4 => "Origem do frame não configurada (código 4). Reinicie o bridge.",
+        5 => "Operação cancelada (código 5).",
+        6 => "Erro interno do SDK Futronic (código 6).",
+        7 => "Leitor não conectado (código 7). Verifique o USB.",
+        8 => "Falha no leitor / operação cancelada (código 8).",
+        _ => $"Coloque o dedo no leitor e tente novamente (código {rc}).",
+    };
 
     public static (bool Matched, int Score, string? Error) MatchTemplates(byte[] live, byte[] stored)
     {
