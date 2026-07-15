@@ -12,15 +12,20 @@ public sealed class FutronicFingerprintService : IFingerprintService
     public bool IsDemoMode => false;
     public bool IsDeviceConnected => FutronicNative.IsDeviceAvailable();
 
-    public ScanResult ScanSingle(int timeoutMs = 15000)
+    public ScanResult ScanSingle(int timeoutMs = 15000, ScanMode mode = ScanMode.Enroll)
     {
-        var (success, template, error) = FutronicNative.CaptureTemplate(timeoutMs);
+        var captureMode = mode == ScanMode.Verify ? CaptureMode.Verify : CaptureMode.Enroll;
+        var (success, template, error) = FutronicNative.CaptureTemplate(timeoutMs, captureMode);
         if (!success || template == null)
         {
             return new ScanResult(false, null, null, error ?? "Falha na captura.");
         }
 
-        return new ScanResult(true, FutronicNative.EncodeTemplate(template), null, "Captura concluída.");
+        var message = mode == ScanMode.Verify
+            ? "Captura (1 toque) concluída."
+            : "Cadastro (3 amostras) concluído.";
+
+        return new ScanResult(true, FutronicNative.EncodeTemplate(template), null, message);
     }
 
     public MatchResult Verify(string liveTemplateBase64, string storedTemplateBase64)

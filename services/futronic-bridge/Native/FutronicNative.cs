@@ -61,9 +61,18 @@ internal delegate void FtrStateCallback(
     int signal,
     IntPtr bitmap);
 
+internal enum CaptureMode
+{
+    /// <summary>Cadastro: FTR_PURPOSE_ENROLL + 3 modelos (coloca/tira o dedo ~3 vezes).</summary>
+    Enroll,
+    /// <summary>Login/confirmação: FTR_PURPOSE_VERIFY (1 toque).</summary>
+    Verify,
+}
+
 internal static class FutronicNative
 {
     private const int DefaultTemplateSize = 8192;
+    private const int EnrollModels = 3;
 
     private static readonly object Sync = new();
     private static bool _initialized;
@@ -200,7 +209,7 @@ internal static class FutronicNative
                     return false;
                 }
 
-                FTRSetParam(FtrConstants.ParamMaxModels, new IntPtr(3));
+                FTRSetParam(FtrConstants.ParamMaxModels, new IntPtr(EnrollModels));
 
                 var callbackPtr = Marshal.GetFunctionPointerForDelegate(_stateCallback);
                 var cbRc = FTRSetParam(FtrConstants.ParamCbControl, callbackPtr);
@@ -232,7 +241,9 @@ internal static class FutronicNative
         }
     }
 
-    public static (bool Success, byte[]? Template, string? Error) CaptureTemplate(int timeoutMs = 60000)
+    public static (bool Success, byte[]? Template, string? Error) CaptureTemplate(
+        int timeoutMs = 60000,
+        CaptureMode mode = CaptureMode.Enroll)
     {
         if (timeoutMs <= 0)
         {
@@ -248,7 +259,7 @@ internal static class FutronicNative
 
             try
             {
-                return EnrollTemplate(timeoutMs);
+                return EnrollTemplate(timeoutMs, mode);
             }
             catch (Exception ex)
             {
@@ -257,8 +268,25 @@ internal static class FutronicNative
         }
     }
 
-    private static (bool Success, byte[]? Template, string? Error) EnrollTemplate(int timeoutMs)
+    public static CaptureMode ParseCaptureMode(string? mode)
     {
+        if (string.Equals(mode, "verify", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(mode, "login", StringComparison.OrdinalIgnoreCase))
+        {
+            return CaptureMode.Verify;
+        }
+
+        return CaptureMode.Enroll;
+    }
+
+    private static (bool Success, byte[]? Template, string? Error) EnrollTemplate(int timeoutMs, CaptureMode mode)
+    {
+        var purpose = mode == CaptureMode.Verify
+            ? FtrConstants.PurposeVerify
+            : FtrConstants.PurposeEnroll;
+
+        // Cadastro: 3 modelos. Login/verify: purpose VERIFY → 1 toque.
+        FTRSetParam(FtrConstants.ParamMaxModels, new IntPtr(EnrollModels));
         var templateSize = GetMaxTemplateSize();
         var buffer = Marshal.AllocHGlobal(templateSize);
         var deadline = Environment.TickCount64 + timeoutMs;
@@ -267,7 +295,6 @@ internal static class FutronicNative
         Interlocked.Exchange(ref _captureActive, 1);
 
         using var timeoutCts = new CancellationTokenSource();
-        // Watchdog: só após o timeout real pedimos FTR_CANCEL no callback.
         var watchdog = Task.Run(async () =>
         {
             try
@@ -277,7 +304,6 @@ internal static class FutronicNative
             }
             catch (OperationCanceledException)
             {
-                // Captura terminou antes do timeout.
             }
         }, timeoutCts.Token);
 
@@ -289,8 +315,13 @@ internal static class FutronicNative
                 PData = buffer,
             };
 
-            Console.WriteLine($"[Futronic] FTREnroll iniciado (timeout={timeoutMs}ms, templateBuf={templateSize}). Coloque o dedo…");
-            var rc = FTREnroll(IntPtr.Zero, FtrConstants.PurposeEnroll, ref template);
+            var hint = mode == CaptureMode.Enroll
+                ? "Coloque e tire o dedo ~3 vezes"
+                : "Coloque o dedo uma vez";
+            Console.WriteLine(
+                $"[Futronic] FTREnroll mode={mode} purpose={purpose} timeout={timeoutMs}ms. {hint}.");
+
+            var rc = FTREnroll(IntPtr.Zero, purpose, ref template);
             var forced = Interlocked.CompareExchange(ref _forceCancel, 0, 0) == 1;
             Console.WriteLine($"[Futronic] FTREnroll retornou código {rc}, size={template.DwSize}, forcedCancel={forced}");
 
@@ -299,7 +330,9 @@ internal static class FutronicNative
                 if (forced || Environment.TickCount64 > Interlocked.Read(ref _captureDeadlineMs))
                 {
                     return (false, null,
-                        "Tempo esgotado aguardando digital no leitor. Mantenha o dedo no sensor (ele deve piscar várias vezes) e tente de novo.");
+                        mode == CaptureMode.Enroll
+                            ? "Tempo esgotado. Coloque e tire o dedo no sensor cerca de 3 vezes até concluir."
+                            : "Tempo esgotado. Coloque o dedo uma vez no sensor e tente de novo.");
                 }
 
                 return (false, null,
@@ -333,8 +366,6 @@ internal static class FutronicNative
 
     private static int GetMaxTemplateSize()
     {
-        FTRSetParam(FtrConstants.ParamMaxModels, new IntPtr(3));
-
         if (FTRGetParam(FtrConstants.ParamMaxTemplateSize, out var templateSize) == FtrConstants.RetcodeOk &&
             templateSize > 64 &&
             templateSize <= 65536)

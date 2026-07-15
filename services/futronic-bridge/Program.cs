@@ -106,6 +106,12 @@ app.MapGet("/scan/single", async (HttpContext context) =>
     cts.CancelAfter(TimeSpan.FromMinutes(2));
 
     var timeoutMs = int.TryParse(context.Request.Query["timeoutMs"], out var timeout) ? timeout : 60000;
+    // Default enroll (~3 toques) para teste direto; use ?mode=verify para 1 toque.
+    var modeRaw = context.Request.Query["mode"].ToString();
+    var mode = string.Equals(modeRaw, "verify", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(modeRaw, "login", StringComparison.OrdinalIgnoreCase)
+        ? ScanMode.Verify
+        : ScanMode.Enroll;
 
     try
     {
@@ -119,17 +125,19 @@ app.MapGet("/scan/single", async (HttpContext context) =>
                 templateBase64 = result.TemplateBase64,
                 imageBase64 = result.ImageBase64,
                 message = result.Message,
+                mode = mode.ToString().ToLowerInvariant(),
                 demoProfile = profile,
             }, jsonOptions);
         }
 
-        var scan = await Task.Run(() => fingerprintService.ScanSingle(timeoutMs), cts.Token);
+        var scan = await Task.Run(() => fingerprintService.ScanSingle(timeoutMs, mode), cts.Token);
         return Results.Json(new
         {
             success = scan.Success,
             templateBase64 = scan.TemplateBase64,
             imageBase64 = scan.ImageBase64,
             message = scan.Message,
+            mode = mode.ToString().ToLowerInvariant(),
         }, jsonOptions);
     }
     catch (OperationCanceledException)
@@ -178,7 +186,8 @@ app.MapPost("/identify", async (HttpRequest request) =>
 
     if (string.IsNullOrWhiteSpace(body.LiveTemplateBase64))
     {
-        var scan = fingerprintService.ScanSingle(body.TimeoutMs ?? 60000);
+        // Identify/login: captura rápida com 1 toque.
+        var scan = fingerprintService.ScanSingle(body.TimeoutMs ?? 60000, ScanMode.Verify);
         if (!scan.Success || scan.TemplateBase64 == null)
         {
             return Results.Json(new { success = false, matched = false, message = scan.Message }, jsonOptions);

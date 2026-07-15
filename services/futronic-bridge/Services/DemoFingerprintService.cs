@@ -14,8 +14,10 @@ public sealed class DemoFingerprintService : IFingerprintService
     public bool IsDemoMode => true;
     public bool IsDeviceConnected => true;
 
-    public ScanResult ScanSingle(int timeoutMs = 15000)
+    public ScanResult ScanSingle(int timeoutMs = 15000, ScanMode mode = ScanMode.Enroll)
     {
+        _ = timeoutMs;
+        _ = mode;
         // Default demo profile 1; portal can pass ?profile=N on scan requests.
         return ScanSingleForProfile(1);
     }

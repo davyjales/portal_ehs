@@ -30,7 +30,8 @@ if not exist "bin\Debug\net8.0\ftrScanAPI.dll" (
 if not exist "bin\Debug\net8.0\DataBase\Bmp" mkdir "bin\Debug\net8.0\DataBase\Bmp" >nul 2>&1
 
 echo Mantenha esta janela aberta enquanto usar a biometria.
-echo Teste captura: http://127.0.0.1:8080/scan/single
+echo Teste cadastro (3 toques): http://127.0.0.1:8080/scan/single
+echo Teste login (1 toque):    http://127.0.0.1:8080/scan/single?mode=verify
 echo Para encerrar: Ctrl+C
 echo.
 

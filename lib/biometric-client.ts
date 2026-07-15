@@ -56,11 +56,18 @@ export async function checkBridge(): Promise<BridgeHealth | null> {
   }
 }
 
-export async function scanSingle(options?: { timeoutMs?: number }): Promise<ScanResponse> {
+export type ScanMode = "enroll" | "verify";
+
+/** enroll = cadastro (~3 toques); verify = login/confirmação (1 toque). */
+export async function scanSingle(options?: {
+  timeoutMs?: number;
+  mode?: ScanMode;
+}): Promise<ScanResponse> {
   const params = new URLSearchParams();
   if (options?.timeoutMs) params.set("timeoutMs", String(options.timeoutMs));
+  params.set("mode", options?.mode ?? "enroll");
   const query = params.toString();
-  return bridgeFetch<ScanResponse>(`/scan/single${query ? `?${query}` : ""}`);
+  return bridgeFetch<ScanResponse>(`/scan/single?${query}`);
 }
 
 export async function verifyTemplate(

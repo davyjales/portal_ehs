@@ -33,7 +33,7 @@ export default function BiometricLoginPanel({
       }
       setStatusMessage(
         health.deviceConnected
-          ? "Leitor conectado. Clique abaixo e posicione o dedo no sensor."
+          ? "Leitor conectado. Clique abaixo e coloque o dedo uma vez no sensor."
           : "Leitor não detectado. Verifique USB e drivers."
       );
     });
@@ -46,7 +46,7 @@ export default function BiometricLoginPanel({
     }
 
     setLoading(true);
-    setStatusMessage("Aguardando digital...");
+    setStatusMessage("Aguardando digital… coloque o dedo uma vez.");
 
     try {
       const templates = await fetchPortalTemplates();
@@ -55,7 +55,7 @@ export default function BiometricLoginPanel({
         return;
       }
 
-      const scan = await scanSingle({ timeoutMs: 60000 });
+      const scan = await scanSingle({ timeoutMs: 60000, mode: "verify" });
       if (!scan.success || !scan.templateBase64) {
         onError(scan.message || "Não foi possível capturar a digital.");
         return;
@@ -79,7 +79,7 @@ export default function BiometricLoginPanel({
       onError("Falha na comunicação com o leitor biométrico.");
     } finally {
       setLoading(false);
-      setStatusMessage("Leitor conectado. Clique abaixo e posicione o dedo no sensor.");
+      setStatusMessage("Leitor conectado. Clique abaixo e coloque o dedo uma vez no sensor.");
     }
   }, [bridgeHealth, onError, onSuccess]);
 
@@ -125,7 +125,9 @@ export function BiometricRegistrationPanel({
   const [firstTemplate, setFirstTemplate] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [bridgeReady, setBridgeReady] = useState<boolean | null>(null);
-  const [message, setMessage] = useState("Clique no botão abaixo e posicione o dedo no leitor.");
+  const [message, setMessage] = useState(
+    "Clique abaixo. No cadastro, coloque e tire o dedo cerca de 3 vezes."
+  );
 
   useEffect(() => {
     checkBridge().then((health) => {
@@ -140,12 +142,12 @@ export function BiometricRegistrationPanel({
         return;
       }
       setBridgeReady(true);
-      setMessage("Clique no botão abaixo e posicione o dedo no leitor.");
+      setMessage("Clique abaixo. No cadastro, coloque e tire o dedo cerca de 3 vezes.");
     });
   }, []);
 
-  async function captureTemplate() {
-    const scan = await scanSingle({ timeoutMs: 60000 });
+  async function captureTemplate(mode: "enroll" | "verify") {
+    const scan = await scanSingle({ timeoutMs: 90000, mode });
     if (!scan.success || !scan.templateBase64) {
       throw new Error(scan.message || "Não foi possível capturar a digital.");
     }
@@ -159,15 +161,15 @@ export function BiometricRegistrationPanel({
     }
 
     setLoading(true);
-    setMessage("Aguardando digital... Coloque o dedo no leitor agora.");
+    setMessage("Cadastro: coloque e tire o dedo cerca de 3 vezes até o LED parar.");
     try {
-      const template = await captureTemplate();
+      const template = await captureTemplate("enroll");
       setFirstTemplate(template);
       setStep("confirm");
-      setMessage("Repita a digital para confirmar o cadastro.");
+      setMessage("Confirmação: coloque o mesmo dedo uma vez.");
     } catch (err) {
       onError(err instanceof Error ? err.message : "Erro na captura.");
-      setMessage("Clique no botão abaixo e posicione o dedo no leitor.");
+      setMessage("Clique abaixo. No cadastro, coloque e tire o dedo cerca de 3 vezes.");
     } finally {
       setLoading(false);
     }
@@ -177,15 +179,15 @@ export function BiometricRegistrationPanel({
     if (!firstTemplate) return;
 
     setLoading(true);
-    setMessage("Aguardando confirmação... Coloque o mesmo dedo no leitor.");
+    setMessage("Confirmação: coloque o mesmo dedo uma vez no sensor.");
     try {
-      const confirmTemplate = await captureTemplate();
+      const confirmTemplate = await captureTemplate("verify");
       const verify = await verifyTemplate(confirmTemplate, firstTemplate);
       if (!verify.success || !verify.verified) {
         onError("As digitais não coincidem. Tente novamente.");
         setStep("first");
         setFirstTemplate(null);
-        setMessage("Clique no botão abaixo e posicione o dedo no leitor.");
+        setMessage("Clique abaixo. No cadastro, coloque e tire o dedo cerca de 3 vezes.");
         return;
       }
 
@@ -208,7 +210,7 @@ export function BiometricRegistrationPanel({
       onSuccess({ role: data.role, name: data.name });
     } catch (err) {
       onError(err instanceof Error ? err.message : "Erro na confirmação.");
-      setMessage("Clique no botão abaixo e posicione o dedo no leitor.");
+      setMessage("Confirmação: coloque o mesmo dedo uma vez no sensor.");
     } finally {
       setLoading(false);
     }
@@ -223,6 +225,7 @@ export function BiometricRegistrationPanel({
         </p>
         <p className="text-xs text-emerald-700 mt-2">
           Etapa {step === "first" ? "1" : "2"} de 2
+          {step === "first" ? " · ~3 amostras" : " · 1 toque"}
         </p>
       </div>
 
