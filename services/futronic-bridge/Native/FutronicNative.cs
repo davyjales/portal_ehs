@@ -65,6 +65,9 @@ internal static class FutronicNative
     private static readonly object Sync = new();
     private static bool _initialized;
     private static FtrStateCallback? _stateCallback;
+
+    // Visíveis para a thread nativa do callback (Task.Run + FTRAPI).
+    private static int _captureActive; // 0 = idle, 1 = capturando
     private static long _captureDeadlineMs;
 
     [DllImport("ftrScanAPI.dll", CallingConvention = CallingConvention.StdCall)]
@@ -152,9 +155,12 @@ internal static class FutronicNative
             return;
         }
 
-        var code = Environment.TickCount64 > _captureDeadlineMs
-            ? FtrConstants.Cancel
-            : FtrConstants.Continue;
+        // Nunca cancelar por deadline=0 (race): se não há captura ativa, continue.
+        // Só cancela quando a captura está ativa E o timeout realmente esgotou.
+        var active = Interlocked.CompareExchange(ref _captureActive, 0, 0) == 1;
+        var deadline = Interlocked.Read(ref _captureDeadlineMs);
+        var timedOut = active && deadline > 0 && Environment.TickCount64 > deadline;
+        var code = timedOut ? FtrConstants.Cancel : FtrConstants.Continue;
         Marshal.WriteInt32(response, code);
     }
 
@@ -253,7 +259,10 @@ internal static class FutronicNative
     {
         var templateSize = GetMaxTemplateSize();
         var buffer = Marshal.AllocHGlobal(templateSize);
-        _captureDeadlineMs = Environment.TickCount64 + timeoutMs;
+        var deadline = Environment.TickCount64 + timeoutMs;
+        Interlocked.Exchange(ref _captureDeadlineMs, deadline);
+        // Ativar só depois do deadline — evita race "active=true + deadline=0".
+        Interlocked.Exchange(ref _captureActive, 1);
 
         try
         {
@@ -264,10 +273,14 @@ internal static class FutronicNative
             };
 
             var rc = FTREnroll(IntPtr.Zero, FtrConstants.PurposeEnroll, ref template);
+            var timedOut = Environment.TickCount64 > Interlocked.Read(ref _captureDeadlineMs);
 
-            if (rc == FtrConstants.RetcodeCanceledByUser || Environment.TickCount64 > _captureDeadlineMs)
+            if (rc == FtrConstants.RetcodeCanceledByUser || timedOut)
             {
-                return (false, null, "Tempo esgotado aguardando digital no leitor.");
+                return (false, null,
+                    timedOut
+                        ? "Tempo esgotado aguardando digital no leitor. Mantenha o dedo no sensor e tente de novo."
+                        : "Captura cancelada. Coloque o dedo no leitor e tente novamente.");
             }
 
             if (rc != FtrConstants.RetcodeOk)
@@ -286,7 +299,8 @@ internal static class FutronicNative
         }
         finally
         {
-            _captureDeadlineMs = 0;
+            Interlocked.Exchange(ref _captureActive, 0);
+            Interlocked.Exchange(ref _captureDeadlineMs, 0);
             Marshal.FreeHGlobal(buffer);
         }
     }
