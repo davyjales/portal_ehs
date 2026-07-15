@@ -7,9 +7,12 @@ import { rotateQuizPageToken } from "@/lib/quiz-client";
 import { TouchKeyboardActivator } from "@/components/layout/TouchKeyboardActivator";
 import { touchKeyboardNumericProps, touchKeyboardProps } from "@/lib/touch-keyboard";
 import { checkBiometricStatus } from "@/lib/biometric-client";
-import BiometricLoginPanel, { BiometricRegistrationPanel } from "@/components/login/BiometricLoginPanel";
+import BiometricLoginPanel, {
+  BiometricConfirmPanel,
+  BiometricRegistrationPanel,
+} from "@/components/login/BiometricLoginPanel";
 
-type LoginMode = "prontuario" | "register-biometric" | "biometric";
+type LoginMode = "prontuario" | "register-biometric" | "confirm-biometric" | "biometric";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -22,6 +25,8 @@ export default function LoginPage() {
   const [requiresPassword, setRequiresPassword] = useState(false);
   const [pendingAdminPassword, setPendingAdminPassword] = useState<string | undefined>();
   const [pendingRole, setPendingRole] = useState<string>("EMPLOYEE");
+  const [pendingUserId, setPendingUserId] = useState<string>("");
+  const [pendingUserName, setPendingUserName] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -80,34 +85,11 @@ export default function LoginPage() {
         return;
       }
 
-      // Já tem biometria: pedido típico é login por digital; admin com bio pode seguir.
-      // Ainda permitem login por prontuário quando já cadastrado (fallback).
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prontuario: prontuario.trim(),
-          password: requiresPassword ? password : undefined,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        if (data.requiresPassword) {
-          setRequiresPassword(true);
-        }
-        if (data.requiresBiometricRegistration) {
-          setPendingRole(data.role ?? "EMPLOYEE");
-          setPendingAdminPassword(data.requiresPassword ? password : undefined);
-          setMode("register-biometric");
-          return;
-        }
-        setError(data.error || "Erro ao entrar.");
-        return;
-      }
-
-      handleLoginSuccess({ role: data.role });
+      // Já tem biometria: pedir confirmação da digital (não cria sessão só com prontuário).
+      setPendingUserId(statusData.userId);
+      setPendingUserName(statusData.name ?? "");
+      setPendingRole(statusData.role ?? "EMPLOYEE");
+      setMode("confirm-biometric");
     } catch {
       setError("Não foi possível conectar ao servidor.");
     } finally {
@@ -128,9 +110,11 @@ export default function LoginPage() {
           <p className="text-slate-500 text-sm mb-6">
             {mode === "register-biometric"
               ? "Cadastre sua digital para vincular ao prontuário."
-              : mode === "biometric"
-                ? "Posicione sua digital no leitor para acessar o portal."
-                : "Informe seu prontuário para acessar o portal. No primeiro acesso, será pedido o cadastro da digital."}
+              : mode === "confirm-biometric"
+                ? "Confirme sua digital para acessar o portal."
+                : mode === "biometric"
+                  ? "Posicione sua digital no leitor para acessar o portal."
+                  : "Informe seu prontuário. No primeiro acesso cadastre a digital; nos próximos, confirme com o dedo."}
           </p>
 
           {error && (
@@ -211,6 +195,20 @@ export default function LoginPage() {
               prontuario={prontuario.trim()}
               password={pendingAdminPassword}
               isAdmin={pendingRole === "ADMIN"}
+              onSuccess={(payload) => handleLoginSuccess({ role: payload.role })}
+              onError={setError}
+              onCancel={() => {
+                setMode("prontuario");
+                setError(null);
+              }}
+            />
+          )}
+
+          {mode === "confirm-biometric" && pendingUserId && (
+            <BiometricConfirmPanel
+              prontuario={prontuario.trim()}
+              userId={pendingUserId}
+              userName={pendingUserName}
               onSuccess={(payload) => handleLoginSuccess({ role: payload.role })}
               onError={setError}
               onCancel={() => {

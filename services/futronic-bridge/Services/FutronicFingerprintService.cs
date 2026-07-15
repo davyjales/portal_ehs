@@ -63,35 +63,105 @@ public sealed class FutronicFingerprintService : IFingerprintService
         }
     }
 
-    public MatchResult Identify(string liveTemplateBase64, IEnumerable<(string UserId, string TemplateBase64)> templates)
+    public MatchResult Identify(
+        IEnumerable<(string UserId, string TemplateBase64)> templates,
+        string? liveTemplateBase64 = null,
+        int timeoutMs = 60000)
     {
         try
         {
-            var live = FutronicNative.DecodeTemplate(liveTemplateBase64);
-            string? bestUserId = null;
-            var bestScore = 0;
+            var gallery = templates
+                .Where(t => !string.IsNullOrWhiteSpace(t.UserId) && !string.IsNullOrWhiteSpace(t.TemplateBase64))
+                .Select(t => (UserId: t.UserId!, TemplateBase64: t.TemplateBase64!))
+                .ToList();
 
-            foreach (var (userId, templateBase64) in templates)
+            if (gallery.Count == 0)
             {
-                var stored = FutronicNative.DecodeTemplate(templateBase64);
-                var (matched, score, _) = FutronicNative.MatchTemplates(live, stored);
-                if (matched && score >= bestScore)
+                return new MatchResult(true, false, null, 0, "Nenhuma biometria cadastrada.");
+            }
+
+            // 1 usuário: mesmo caminho da confirmação de cadastro (FTRVerify) — confiável.
+            if (gallery.Count == 1 && string.IsNullOrWhiteSpace(liveTemplateBase64))
+            {
+                var one = LiveVerify(gallery[0].TemplateBase64, timeoutMs);
+                if (!one.Success)
                 {
-                    bestScore = score;
-                    bestUserId = userId;
+                    return one;
                 }
+
+                return new MatchResult(
+                    true,
+                    one.Matched,
+                    one.Matched ? gallery[0].UserId : null,
+                    one.Score,
+                    one.Matched ? "Usuário identificado." : (one.Message ?? "Digital não reconhecida."));
             }
 
-            if (bestUserId != null)
+            byte[] probe;
+            if (!string.IsNullOrWhiteSpace(liveTemplateBase64))
             {
-                return new MatchResult(true, true, bestUserId, bestScore, "Usuário identificado.");
+                probe = FutronicNative.DecodeTemplate(liveTemplateBase64);
+            }
+            else
+            {
+                var scan = ScanSingle(timeoutMs, ScanMode.Verify);
+                if (!scan.Success || scan.TemplateBase64 == null)
+                {
+                    return new MatchResult(false, false, null, 0, scan.Message ?? "Falha na captura.");
+                }
+
+                probe = FutronicNative.DecodeTemplate(scan.TemplateBase64);
             }
 
-            return new MatchResult(true, false, null, 0, "Digital não reconhecida.");
+            var enrollBytes = gallery
+                .Select(g => FutronicNative.DecodeTemplate(g.TemplateBase64))
+                .ToList();
+
+            var (ok, matchIndex, error) = FutronicNative.IdentifyAgainstGallery(probe, enrollBytes);
+            if (!ok)
+            {
+                // Fallback legado (costuma falhar IDENTIFY vs ENROLL) — útil só em DLLs incompletas.
+                Console.WriteLine($"[Futronic] IdentifyAgainstGallery falhou: {error}. Tentando MatchingTemplate.");
+                return IdentifyViaMatchingTemplate(probe, gallery);
+            }
+
+            if (matchIndex < 0)
+            {
+                return new MatchResult(true, false, null, 0, "Digital não reconhecida.");
+            }
+
+            return new MatchResult(true, true, gallery[matchIndex].UserId, 100, "Usuário identificado.");
         }
         catch (Exception ex)
         {
             return new MatchResult(false, false, null, 0, ex.Message);
         }
+    }
+
+    private static MatchResult IdentifyViaMatchingTemplate(
+        byte[] probe,
+        List<(string UserId, string TemplateBase64)> gallery)
+    {
+        string? bestUserId = null;
+        var bestScore = 0;
+
+        foreach (var (userId, templateBase64) in gallery)
+        {
+            var stored = FutronicNative.DecodeTemplate(templateBase64);
+            var (matched, score, _) = FutronicNative.MatchTemplates(probe, stored);
+            if (matched && score >= bestScore)
+            {
+                bestScore = score;
+                bestUserId = userId;
+            }
+        }
+
+        if (bestUserId != null)
+        {
+            return new MatchResult(true, true, bestUserId, bestScore, "Usuário identificado.");
+        }
+
+        return new MatchResult(true, false, null, 0,
+            "Digital não reconhecida. Se persistir, use prontuário e confirme com a digital.");
     }
 }

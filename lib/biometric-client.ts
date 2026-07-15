@@ -93,17 +93,17 @@ export async function verifyLive(
   });
 }
 
+/** Identificação 1:N no bridge (1 toque). Não envie probe pré-capturado — o matching IDENTIFY≠ENROLL falhava. */
 export async function identifyUser(
   templates: BiometricTemplateEntry[],
-  liveTemplateBase64?: string
+  timeoutMs = 60000
 ): Promise<IdentifyResponse> {
   return bridgeFetch<IdentifyResponse>("/identify", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      liveTemplateBase64,
       templates,
-      timeoutMs: 60000,
+      timeoutMs,
     }),
   });
 }

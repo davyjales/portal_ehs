@@ -194,23 +194,15 @@ app.MapPost("/identify", async (HttpRequest request) =>
         return Results.Json(new { success = false, matched = false, message = "Nenhum template informado." }, jsonOptions);
     }
 
-    if (string.IsNullOrWhiteSpace(body.LiveTemplateBase64))
-    {
-        // Identify/login: captura rápida com 1 toque.
-        var scan = fingerprintService.ScanSingle(body.TimeoutMs ?? 60000, ScanMode.Verify);
-        if (!scan.Success || scan.TemplateBase64 == null)
-        {
-            return Results.Json(new { success = false, matched = false, message = scan.Message }, jsonOptions);
-        }
-
-        body.LiveTemplateBase64 = scan.TemplateBase64;
-    }
-
     var templates = body.Templates
         .Where(t => !string.IsNullOrWhiteSpace(t.UserId) && !string.IsNullOrWhiteSpace(t.TemplateBase64))
         .Select(t => (t.UserId!, t.TemplateBase64!));
 
-    var result = fingerprintService.Identify(body.LiveTemplateBase64, templates);
+    // Sem liveTemplate: FTRVerify (1 galeria) ou captura IDENTIFY + FTRIdentify (várias).
+    var result = fingerprintService.Identify(
+        templates,
+        body.LiveTemplateBase64,
+        body.TimeoutMs ?? 60000);
     return Results.Json(new
     {
         success = result.Success,

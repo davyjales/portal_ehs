@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { establishUserSession, userHasBiometric } from "@/lib/session-establish";
-import type { Role } from "@/lib/auth";
+import { userHasBiometric } from "@/lib/session-establish";
 
 export async function POST(request: NextRequest) {
   try {
@@ -64,13 +63,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Admin com biometria: pode entrar só com prontuário (atalho); senha não é obrigatória.
-    return establishUserSession({
-      id: user.id,
-      prontuario: user.prontuario,
-      name: user.name,
-      role: user.role as Role,
-    });
+    // Com biometria: não cria sessão só com prontuário — exige confirmação da digital no front.
+    return NextResponse.json(
+      {
+        error: "Confirme sua digital para continuar.",
+        requiresBiometricConfirmation: true,
+        userId: user.id,
+        name: user.name,
+        role: user.role,
+      },
+      { status: 403 }
+    );
   } catch {
     return NextResponse.json({ error: "Erro interno do servidor." }, { status: 500 });
   }

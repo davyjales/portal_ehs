@@ -6,5 +6,6 @@
     <RootNamespace>FutronicBridge</RootNamespace>
     <AssemblyName>FutronicBridge</AssemblyName>
     <PlatformTarget>x86</PlatformTarget>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 </Project>

@@ -18,7 +18,6 @@ public sealed class DemoFingerprintService : IFingerprintService
     {
         _ = timeoutMs;
         _ = mode;
-        // Default demo profile 1; portal can pass ?profile=N on scan requests.
         return ScanSingleForProfile(1);
     }
 
@@ -43,15 +42,34 @@ public sealed class DemoFingerprintService : IFingerprintService
     public MatchResult LiveVerify(string storedTemplateBase64, int timeoutMs = 60000)
     {
         _ = timeoutMs;
-        // Em demo, confirmação ao vivo equivale a comparar com o mesmo template.
         return Verify(storedTemplateBase64, storedTemplateBase64);
     }
 
-    public MatchResult Identify(string liveTemplateBase64, IEnumerable<(string UserId, string TemplateBase64)> templates)
+    public MatchResult Identify(
+        IEnumerable<(string UserId, string TemplateBase64)> templates,
+        string? liveTemplateBase64 = null,
+        int timeoutMs = 60000)
     {
-        foreach (var (userId, templateBase64) in templates)
+        _ = timeoutMs;
+        var gallery = templates.ToList();
+        if (gallery.Count == 0)
         {
-            var verify = Verify(liveTemplateBase64, templateBase64);
+            return new MatchResult(true, false, null, 0, "Nenhuma biometria cadastrada.");
+        }
+
+        if (string.IsNullOrWhiteSpace(liveTemplateBase64))
+        {
+            if (gallery.Count == 1)
+            {
+                return new MatchResult(true, true, gallery[0].UserId, 100, "Usuário identificado.");
+            }
+
+            liveTemplateBase64 = ScanSingle().TemplateBase64;
+        }
+
+        foreach (var (userId, templateBase64) in gallery)
+        {
+            var verify = Verify(liveTemplateBase64!, templateBase64);
             if (verify.Success && verify.Matched)
             {
                 return new MatchResult(true, true, userId, 100, "Usuário identificado.");

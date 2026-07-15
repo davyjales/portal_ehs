@@ -21,5 +21,11 @@ public interface IFingerprintService
     MatchResult Verify(string liveTemplateBase64, string storedTemplateBase64);
     /// <summary>Confirmação com 1 toque no leitor contra template já capturado.</summary>
     MatchResult LiveVerify(string storedTemplateBase64, int timeoutMs = 60000);
-    MatchResult Identify(string liveTemplateBase64, IEnumerable<(string UserId, string TemplateBase64)> templates);
+    /// <summary>
+    /// Identificação 1:N. Sem liveTemplate: 1 toque ao vivo (FTRVerify se N=1, senão IDENTIFY+FTRIdentify).
+    /// </summary>
+    MatchResult Identify(
+        IEnumerable<(string UserId, string TemplateBase64)> templates,
+        string? liveTemplateBase64 = null,
+        int timeoutMs = 60000);
 }

@@ -55,13 +55,8 @@ export default function BiometricLoginPanel({
         return;
       }
 
-      const scan = await scanSingle({ timeoutMs: 60000, mode: "verify" });
-      if (!scan.success || !scan.templateBase64) {
-        onError(scan.message || "Não foi possível capturar a digital.");
-        return;
-      }
-
-      const identify = await identifyUser(templates, scan.templateBase64);
+      // Bridge faz 1 toque (FTRVerify se só há 1 cadastro; senão IDENTIFY+FTRIdentify).
+      const identify = await identifyUser(templates);
       if (!identify.success || !identify.matched || !identify.userId) {
         onError(identify.message || "Digital não reconhecida.");
         return;
@@ -99,6 +94,114 @@ export default function BiometricLoginPanel({
         className="w-full py-3 rounded-xl bg-emerald-700 text-white font-medium hover:bg-emerald-600 disabled:opacity-60 transition-colors"
       >
         {loading ? "Lendo digital..." : "Entrar com digital"}
+      </button>
+    </div>
+  );
+}
+
+type BiometricConfirmPanelProps = {
+  prontuario: string;
+  userId: string;
+  userName?: string;
+  onSuccess: (payload: { role: string; name: string }) => void;
+  onError: (message: string) => void;
+  onCancel: () => void;
+};
+
+/** Prontuário já conhecido + digital cadastrada: confirma com 1 toque (FTRVerify). */
+export function BiometricConfirmPanel({
+  prontuario,
+  userId,
+  userName,
+  onSuccess,
+  onError,
+  onCancel,
+}: BiometricConfirmPanelProps) {
+  const [bridgeReady, setBridgeReady] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("Verificando leitor...");
+
+  useEffect(() => {
+    checkBridge().then((health) => {
+      if (!health?.deviceConnected) {
+        setBridgeReady(false);
+        setMessage(
+          health
+            ? "Leitor não detectado. Verifique USB e drivers."
+            : "Serviço de biometria offline. Inicie o Futronic Bridge no PC."
+        );
+        return;
+      }
+      setBridgeReady(true);
+      setMessage("Coloque o dedo uma vez no sensor para confirmar o acesso.");
+    });
+  }, []);
+
+  const handleConfirm = useCallback(async () => {
+    if (!bridgeReady) {
+      onError("Leitor biométrico indisponível.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("Aguardando digital… coloque o dedo uma vez.");
+    try {
+      const templates = await fetchPortalTemplates();
+      const mine = templates.find((t) => t.userId === userId);
+      if (!mine?.templateBase64) {
+        onError("Biometria deste prontuário não encontrada. Cadastre novamente ou entre só com a digital.");
+        return;
+      }
+
+      const verify = await verifyLive(mine.templateBase64, 60000);
+      if (!verify.success || !verify.verified) {
+        onError(verify.message || "Digital não confere. Tente novamente.");
+        return;
+      }
+
+      const loginRes = await loginWithBiometric(userId);
+      const data = await loginRes.json();
+      if (!loginRes.ok) {
+        onError(data.error || "Erro ao entrar com biometria.");
+        return;
+      }
+
+      onSuccess({ role: data.role, name: data.name });
+    } catch {
+      onError("Falha na comunicação com o leitor biométrico.");
+    } finally {
+      setLoading(false);
+      setMessage("Coloque o dedo uma vez no sensor para confirmar o acesso.");
+    }
+  }, [bridgeReady, onError, onSuccess, userId]);
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
+        <h2 className="font-semibold text-slate-800">Confirmar digital</h2>
+        <p className="text-sm text-slate-600 mt-1">
+          Prontuário <span className="font-mono">{prontuario}</span>
+          {userName ? ` · ${userName}` : ""}
+        </p>
+        <p className="text-sm text-slate-600 mt-2">{message}</p>
+      </div>
+
+      <button
+        type="button"
+        onClick={handleConfirm}
+        disabled={loading || bridgeReady === false}
+        className="w-full py-3 rounded-xl bg-emerald-700 text-white font-medium hover:bg-emerald-600 disabled:opacity-60 transition-colors"
+      >
+        {loading ? "Aguardando digital..." : "Confirmar com digital"}
+      </button>
+
+      <button
+        type="button"
+        onClick={onCancel}
+        disabled={loading}
+        className="w-full py-2 text-sm text-slate-500 hover:text-slate-700"
+      >
+        Voltar
       </button>
     </div>
   );
