@@ -13,21 +13,22 @@ internal static class FtrConstants
     public const int RetcodeCanceledByUser = 5;
     public const int RetcodeCanceledByUserAlt = 8;
 
-    // FTR_PARAM_* (FutronicSdkBase / FTRAPI.h)
+    // FTR_PARAM_* — ordem do enum FTRAPI.h (1-based).
+    // Antes FAR/MODELS estavam trocados: FAR ia para o slot de MODELS e o limiar
+    // de match ficava no default frouxo (~0.05) → dedos da mesma mão podiam passar.
     public const int ParamImageWidth = 1;
     public const int ParamImageHeight = 2;
     public const int ParamImageSize = 3;
     public const int ParamCbFrameSource = 4;
     public const int ParamCbControl = 5;
     public const int ParamMaxTemplateSize = 6;
-    public const int ParamMaxFarRequested = 7;
-    public const int ParamMaxFarnRequested = 8;
-    public const int ParamSysErrorCode = 9;
+    public const int ParamMaxModels = 7;
+    public const int ParamMaxFarRequested = 8;
+    public const int ParamMaxFarnRequested = 9;
+    public const int ParamSysErrorCode = 10;
     public const int ParamFakeDetect = 11;
     public const int ParamFfdControl = 12;
     public const int ParamMiotControl = 13;
-    // Antes estava em 7 por engano (= FAR). Default do SDK é 5 modelos → 5 toques.
-    public const int ParamMaxModels = 14;
 
     // Frame sources
     public const int FrameSourceUndefined = 0;
@@ -45,7 +46,10 @@ internal static class FtrConstants
     public const int Cancel = 1;
     public const int Continue = 2;
 
-    public const int DefaultFarRequested = 107374182; // ~0.05 FAR
+    // FAR = valor / (2^31-1). Maior = mais permissivo.
+    // 0.05 (107374182) é só demo no manual — aceita demais. ~0.0001 para login.
+    public const int StrictFarRequested = 214748;
+    public const int DefaultFarRequested = StrictFarRequested;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -70,7 +74,11 @@ internal enum CaptureMode
 {
     /// <summary>Cadastro: FTR_PURPOSE_ENROLL + MAX_MODELS=3 (~3 toques).</summary>
     Enroll,
-    /// <summary>Login: FTR_PURPOSE_IDENTIFY (1 toque) para gerar probe de matching.</summary>
+    /// <summary>
+    /// Login 1:N: FTR_PURPOSE_ENROLL + MAX_MODELS=1 (1 toque).
+    /// Continua compatível com FTRMatchingTemplate / templates ENROLL guardados
+    /// (PURPOSE_IDENTIFY + MatchingTemplate não casa e o login só-digital falhava).
+    /// </summary>
     Verify,
 }
 
@@ -110,10 +118,17 @@ internal static class FutronicNative
     private static extern int FTREnroll(IntPtr context, int purpose, ref FtrData template);
 
     [DllImport("FTRAPI.dll", CallingConvention = CallingConvention.StdCall)]
-    private static extern int FTRVerify(IntPtr context, ref FtrData template, out int isVerified, IntPtr reserved);
+    private static extern int FTRVerify(
+        IntPtr context,
+        ref FtrData template,
+        [MarshalAs(UnmanagedType.Bool)] out bool isVerified,
+        IntPtr reserved);
 
     [DllImport("FTRAPI.dll", CallingConvention = CallingConvention.StdCall)]
-    private static extern int FTRMatchingTemplate(ref FtrData template1, ref FtrData template2, out int matched);
+    private static extern int FTRMatchingTemplate(
+        ref FtrData template1,
+        ref FtrData template2,
+        [MarshalAs(UnmanagedType.Bool)] out bool matched);
 
     [DllImport("FTRAPI.dll", CallingConvention = CallingConvention.StdCall)]
     private static extern int FTRSetBaseTemplate(ref FtrData template);
@@ -256,6 +271,8 @@ internal static class FutronicNative
                 }
 
                 ApplyMaxModels(EnrollModels);
+                EnableMiotProtection();
+                ApplyMatchSecurity();
 
                 var callbackPtr = Marshal.GetFunctionPointerForDelegate(_stateCallback);
                 var cbRc = FTRSetParam(FtrConstants.ParamCbControl, callbackPtr);
@@ -332,14 +349,34 @@ internal static class FutronicNative
         Console.WriteLine($"[Futronic] MAX_MODELS set={models} rc={rc} readback={current}");
     }
 
+    /// <summary>
+    /// Impede misturar dedos diferentes no mesmo template durante o enroll.
+    /// </summary>
+    private static void EnableMiotProtection()
+    {
+        var rc = FTRSetParam(FtrConstants.ParamMiotControl, new IntPtr(1));
+        FTRGetParam(FtrConstants.ParamMiotControl, out var current);
+        Console.WriteLine($"[Futronic] MIOT_CONTROL set=1 rc={rc} readback={current}");
+    }
+
+    /// <summary>
+    /// FAR estrito para verificação/identificação (login seguro).
+    /// </summary>
+    private static void ApplyMatchSecurity()
+    {
+        var far = FtrConstants.StrictFarRequested;
+        var rc = FTRSetParam(FtrConstants.ParamMaxFarRequested, new IntPtr(far));
+        FTRGetParam(FtrConstants.ParamMaxFarRequested, out var current);
+        Console.WriteLine($"[Futronic] MAX_FAR set={far} (~0.0001) rc={rc} readback={current}");
+    }
+
     private static (bool Success, byte[]? Template, string? Error) EnrollTemplate(int timeoutMs, CaptureMode mode)
     {
-        // Cadastro: ENROLL + 3 modelos. Login: IDENTIFY (1 toque). Nunca PURPOSE_VERIFY no FTREnroll.
-        var purpose = mode == CaptureMode.Verify
-            ? FtrConstants.PurposeIdentify
-            : FtrConstants.PurposeEnroll;
-
-        ApplyMaxModels(EnrollModels);
+        // Sempre PURPOSE_ENROLL. Cadastro: N modelos. Login/probe: 1 modelo (1 toque) para MatchingTemplate.
+        // Nunca PURPOSE_VERIFY no FTREnroll (código 3). PURPOSE_IDENTIFY fica só para FTRSetBaseTemplate.
+        var purpose = FtrConstants.PurposeEnroll;
+        var models = mode == CaptureMode.Verify ? 1 : EnrollModels;
+        ApplyMaxModels(models);
         var templateSize = GetMaxTemplateSize();
         var buffer = Marshal.AllocHGlobal(templateSize);
         var deadline = Environment.TickCount64 + timeoutMs;
@@ -369,24 +406,14 @@ internal static class FutronicNative
             };
 
             var hint = mode == CaptureMode.Enroll
-                ? "Coloque e tire o dedo ~3 vezes"
-                : "Coloque o dedo uma vez";
+                ? $"Coloque e tire o dedo ~{models} vezes"
+                : "Coloque o dedo uma vez (probe de login)";
             Console.WriteLine(
-                $"[Futronic] FTREnroll mode={mode} purpose={purpose} timeout={timeoutMs}ms. {hint}.");
+                $"[Futronic] FTREnroll mode={mode} purpose={purpose} models={models} timeout={timeoutMs}ms. {hint}.");
 
             var rc = FTREnroll(IntPtr.Zero, purpose, ref template);
             var forced = Interlocked.CompareExchange(ref _forceCancel, 0, 0) == 1;
             Console.WriteLine($"[Futronic] FTREnroll retornou código {rc}, size={template.DwSize}, forcedCancel={forced}");
-
-            // Se IDENTIFY não for suportado neste FTRAPI, cai no enroll (multi-toque).
-            if (mode == CaptureMode.Verify && rc == FtrConstants.RetcodeInvalidPurpose)
-            {
-                Console.WriteLine("[Futronic] PURPOSE_IDENTIFY rejeitado; usando ENROLL como fallback.");
-                template.DwSize = templateSize;
-                template.PData = buffer;
-                rc = FTREnroll(IntPtr.Zero, FtrConstants.PurposeEnroll, ref template);
-                Console.WriteLine($"[Futronic] FTREnroll(ENROLL fallback) código {rc}, size={template.DwSize}");
-            }
 
             if (forced || rc == FtrConstants.RetcodeCanceledByUser || rc == FtrConstants.RetcodeCanceledByUserAlt)
             {
@@ -444,7 +471,7 @@ internal static class FutronicNative
                 return (false, false, initError);
             }
 
-            FTRSetParam(FtrConstants.ParamMaxFarRequested, new IntPtr(FtrConstants.DefaultFarRequested));
+            ApplyMatchSecurity();
 
             var storedPtr = Marshal.AllocHGlobal(storedTemplate.Length);
             var deadline = Environment.TickCount64 + timeoutMs;
@@ -471,7 +498,8 @@ internal static class FutronicNative
                 var stored = new FtrData { DwSize = storedTemplate.Length, PData = storedPtr };
 
                 Console.WriteLine("[Futronic] FTRVerify ao vivo — coloque o dedo uma vez.");
-                var rc = FTRVerify(IntPtr.Zero, ref stored, out var isVerified, IntPtr.Zero);
+                var isVerified = false;
+                var rc = FTRVerify(IntPtr.Zero, ref stored, out isVerified, IntPtr.Zero);
                 var forced = Interlocked.CompareExchange(ref _forceCancel, 0, 0) == 1;
                 Console.WriteLine($"[Futronic] FTRVerify rc={rc} verified={isVerified} forced={forced}");
 
@@ -485,7 +513,8 @@ internal static class FutronicNative
                     return (false, false, DescribeEnrollError(rc));
                 }
 
-                return (true, isVerified != 0, isVerified != 0 ? null : "Digital não confere.");
+                // Exige true explícito — nunca tratar "só ok do SDK" como match.
+                return (true, isVerified, isVerified ? null : "Digital não confere.");
             }
             catch (EntryPointNotFoundException)
             {
@@ -541,7 +570,7 @@ internal static class FutronicNative
                 return (false, 0, initError);
             }
 
-            FTRSetParam(FtrConstants.ParamMaxFarRequested, new IntPtr(FtrConstants.DefaultFarRequested));
+            ApplyMatchSecurity();
 
             var livePtr = Marshal.AllocHGlobal(live.Length);
             var storedPtr = Marshal.AllocHGlobal(stored.Length);
@@ -554,14 +583,14 @@ internal static class FutronicNative
                 var liveData = new FtrData { DwSize = live.Length, PData = livePtr };
                 var storedData = new FtrData { DwSize = stored.Length, PData = storedPtr };
 
-                var rc = FTRMatchingTemplate(ref liveData, ref storedData, out var matched);
+                var matched = false;
+                var rc = FTRMatchingTemplate(ref liveData, ref storedData, out matched);
                 if (rc != FtrConstants.RetcodeOk)
                 {
                     return (false, 0, $"Comparação de templates falhou (código {rc}).");
                 }
 
-                var isMatch = matched != 0;
-                return (isMatch, isMatch ? 100 : 0, isMatch ? null : "Digital não confere.");
+                return (matched, matched ? 100 : 0, matched ? null : "Digital não confere.");
             }
             catch (EntryPointNotFoundException)
             {
@@ -600,7 +629,7 @@ internal static class FutronicNative
                 return (false, -1, initError);
             }
 
-            FTRSetParam(FtrConstants.ParamMaxFarRequested, new IntPtr(FtrConstants.DefaultFarRequested));
+            ApplyMatchSecurity();
 
             var probePtr = Marshal.AllocHGlobal(identifyProbe.Length);
             var galleryPtrs = new IntPtr[enrollTemplates.Count];

@@ -55,14 +55,27 @@ export default function BiometricLoginPanel({
         return;
       }
 
-      // Bridge faz 1 toque (FTRVerify se só há 1 cadastro; senão IDENTIFY+FTRIdentify).
-      const identify = await identifyUser(templates);
-      if (!identify.success || !identify.matched || !identify.userId) {
-        onError(identify.message || "Digital não reconhecida.");
-        return;
+      let userId: string | undefined;
+
+      // 1 cadastro: mesmo caminho do prontuário+digital (FTRVerify) — evita identify 1:N quebrado.
+      if (templates.length === 1) {
+        const verify = await verifyLive(templates[0].templateBase64, 60000);
+        if (!verify.success || verify.verified !== true) {
+          onError(verify.message || "Digital não reconhecida.");
+          return;
+        }
+        userId = templates[0].userId;
+      } else {
+        // Vários cadastros: 1 toque no bridge + comparação ENROLL compatível.
+        const identify = await identifyUser(templates);
+        if (!identify.success || !identify.matched || !identify.userId) {
+          onError(identify.message || "Digital não reconhecida.");
+          return;
+        }
+        userId = identify.userId;
       }
 
-      const loginRes = await loginWithBiometric(identify.userId);
+      const loginRes = await loginWithBiometric(userId);
       const data = await loginRes.json();
       if (!loginRes.ok) {
         onError(data.error || "Erro ao entrar com biometria.");
@@ -154,7 +167,7 @@ export function BiometricConfirmPanel({
       }
 
       const verify = await verifyLive(mine.templateBase64, 60000);
-      if (!verify.success || !verify.verified) {
+      if (!verify.success || verify.verified !== true) {
         onError(verify.message || "Digital não confere. Tente novamente.");
         return;
       }
@@ -229,7 +242,7 @@ export function BiometricRegistrationPanel({
   const [loading, setLoading] = useState(false);
   const [bridgeReady, setBridgeReady] = useState<boolean | null>(null);
   const [message, setMessage] = useState(
-    "Clique abaixo. No cadastro, coloque e tire o dedo cerca de 3 vezes."
+    "Clique abaixo. Use SEMPRE o mesmo dedo em todas as amostras (não troque de dedo)."
   );
 
   useEffect(() => {
@@ -245,7 +258,7 @@ export function BiometricRegistrationPanel({
         return;
       }
       setBridgeReady(true);
-      setMessage("Clique abaixo. No cadastro, coloque e tire o dedo cerca de 3 vezes.");
+      setMessage("Clique abaixo. Use SEMPRE o mesmo dedo em todas as amostras (não troque de dedo).");
     });
   }, []);
 
@@ -264,15 +277,15 @@ export function BiometricRegistrationPanel({
     }
 
     setLoading(true);
-    setMessage("Cadastro: coloque e tire o dedo cerca de 3 vezes até o LED parar.");
+    setMessage("Cadastro: mesmo dedo, coloque e tire várias vezes até o LED parar.");
     try {
       const template = await captureTemplate("enroll");
       setFirstTemplate(template);
       setStep("confirm");
-      setMessage("Confirmação: coloque o mesmo dedo uma vez.");
+      setMessage("Confirmação: coloque o MESMO dedo uma vez.");
     } catch (err) {
       onError(err instanceof Error ? err.message : "Erro na captura.");
-      setMessage("Clique abaixo. No cadastro, coloque e tire o dedo cerca de 3 vezes.");
+      setMessage("Clique abaixo. Use SEMPRE o mesmo dedo em todas as amostras (não troque de dedo).");
     } finally {
       setLoading(false);
     }
@@ -282,15 +295,15 @@ export function BiometricRegistrationPanel({
     if (!firstTemplate) return;
 
     setLoading(true);
-    setMessage("Confirmação: coloque o mesmo dedo uma vez no sensor.");
+    setMessage("Confirmação: coloque o MESMO dedo uma vez no sensor.");
     try {
       // 1 toque ao vivo (FTRVerify) — não usa FTREnroll com PURPOSE_VERIFY (código 3).
       const verify = await verifyLive(firstTemplate, 60000);
-      if (!verify.success || !verify.verified) {
+      if (!verify.success || verify.verified !== true) {
         onError(verify.message || "As digitais não coincidem. Tente novamente.");
         setStep("first");
         setFirstTemplate(null);
-        setMessage("Clique abaixo. No cadastro, coloque e tire o dedo cerca de 3 vezes.");
+        setMessage("Clique abaixo. Use SEMPRE o mesmo dedo em todas as amostras (não troque de dedo).");
         return;
       }
 
