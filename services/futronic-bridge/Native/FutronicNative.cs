@@ -9,7 +9,9 @@ namespace FutronicBridge.Native;
 internal static class FtrConstants
 {
     public const int RetcodeOk = 0;
-    public const int RetcodeCanceledByUser = 8;
+    // Algumas builds retornam 5 ou 8 para cancelamento pelo callback.
+    public const int RetcodeCanceledByUser = 5;
+    public const int RetcodeCanceledByUserAlt = 8;
 
     // FTR_PARAM_* (enum starts at 1)
     public const int ParamImageWidth = 1;
@@ -33,9 +35,10 @@ internal static class FtrConstants
 
     public const int RetcodeInvalidPurpose = 3;
 
-    // Responses written to *pResponse in FTR_CB_STATE_CONTROL
-    public const int Continue = 1;
-    public const int Cancel = 2;
+    // FTR_RESPONSE (FTRAPI.h / WorkedEx): CANCEL=1, CONTINUE=2
+    // Valores invertidos fazem o leitor piscar 1x e abortar a captura.
+    public const int Cancel = 1;
+    public const int Continue = 2;
 
     public const int DefaultFarRequested = 107374182; // ~0.05 FAR
 }
@@ -68,6 +71,7 @@ internal static class FutronicNative
 
     // Visíveis para a thread nativa do callback (Task.Run + FTRAPI).
     private static int _captureActive; // 0 = idle, 1 = capturando
+    private static int _forceCancel; // 1 = pedir cancelamento após timeout real
     private static long _captureDeadlineMs;
 
     [DllImport("ftrScanAPI.dll", CallingConvention = CallingConvention.StdCall)]
@@ -155,12 +159,10 @@ internal static class FutronicNative
             return;
         }
 
-        // Nunca cancelar por deadline=0 (race): se não há captura ativa, continue.
-        // Só cancela quando a captura está ativa E o timeout realmente esgotou.
-        var active = Interlocked.CompareExchange(ref _captureActive, 0, 0) == 1;
-        var deadline = Interlocked.Read(ref _captureDeadlineMs);
-        var timedOut = active && deadline > 0 && Environment.TickCount64 > deadline;
-        var code = timedOut ? FtrConstants.Cancel : FtrConstants.Continue;
+        // Comportamento WorkedEx: continuar em todo frame (LED pisca várias vezes)
+        // até capturar, a menos que o watchdog peça cancelamento.
+        var forceCancel = Interlocked.CompareExchange(ref _forceCancel, 0, 0) == 1;
+        var code = forceCancel ? FtrConstants.Cancel : FtrConstants.Continue;
         Marshal.WriteInt32(response, code);
     }
 
@@ -261,8 +263,23 @@ internal static class FutronicNative
         var buffer = Marshal.AllocHGlobal(templateSize);
         var deadline = Environment.TickCount64 + timeoutMs;
         Interlocked.Exchange(ref _captureDeadlineMs, deadline);
-        // Ativar só depois do deadline — evita race "active=true + deadline=0".
+        Interlocked.Exchange(ref _forceCancel, 0);
         Interlocked.Exchange(ref _captureActive, 1);
+
+        using var timeoutCts = new CancellationTokenSource();
+        // Watchdog: só após o timeout real pedimos FTR_CANCEL no callback.
+        var watchdog = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(timeoutMs, timeoutCts.Token);
+                Interlocked.Exchange(ref _forceCancel, 1);
+            }
+            catch (OperationCanceledException)
+            {
+                // Captura terminou antes do timeout.
+            }
+        }, timeoutCts.Token);
 
         try
         {
@@ -272,15 +289,21 @@ internal static class FutronicNative
                 PData = buffer,
             };
 
+            Console.WriteLine($"[Futronic] FTREnroll iniciado (timeout={timeoutMs}ms, templateBuf={templateSize}). Coloque o dedo…");
             var rc = FTREnroll(IntPtr.Zero, FtrConstants.PurposeEnroll, ref template);
-            var timedOut = Environment.TickCount64 > Interlocked.Read(ref _captureDeadlineMs);
+            var forced = Interlocked.CompareExchange(ref _forceCancel, 0, 0) == 1;
+            Console.WriteLine($"[Futronic] FTREnroll retornou código {rc}, size={template.DwSize}, forcedCancel={forced}");
 
-            if (rc == FtrConstants.RetcodeCanceledByUser || timedOut)
+            if (forced || rc == FtrConstants.RetcodeCanceledByUser || rc == FtrConstants.RetcodeCanceledByUserAlt)
             {
+                if (forced || Environment.TickCount64 > Interlocked.Read(ref _captureDeadlineMs))
+                {
+                    return (false, null,
+                        "Tempo esgotado aguardando digital no leitor. Mantenha o dedo no sensor (ele deve piscar várias vezes) e tente de novo.");
+                }
+
                 return (false, null,
-                    timedOut
-                        ? "Tempo esgotado aguardando digital no leitor. Mantenha o dedo no sensor e tente de novo."
-                        : "Captura cancelada. Coloque o dedo no leitor e tente novamente.");
+                    $"Captura cancelada pelo SDK (código {rc}). Feche o WorkedEx e tente novamente.");
             }
 
             if (rc != FtrConstants.RetcodeOk)
@@ -299,7 +322,10 @@ internal static class FutronicNative
         }
         finally
         {
+            timeoutCts.Cancel();
+            try { watchdog.Wait(500); } catch { /* ignore */ }
             Interlocked.Exchange(ref _captureActive, 0);
+            Interlocked.Exchange(ref _forceCancel, 0);
             Interlocked.Exchange(ref _captureDeadlineMs, 0);
             Marshal.FreeHGlobal(buffer);
         }
