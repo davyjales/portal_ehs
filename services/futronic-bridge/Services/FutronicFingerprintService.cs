@@ -43,6 +43,26 @@ public sealed class FutronicFingerprintService : IFingerprintService
         }
     }
 
+    public MatchResult LiveVerify(string storedTemplateBase64, int timeoutMs = 60000)
+    {
+        try
+        {
+            var stored = FutronicNative.DecodeTemplate(storedTemplateBase64);
+            var (success, matched, error) = FutronicNative.LiveVerify(stored, timeoutMs);
+            if (!success)
+            {
+                return new MatchResult(false, false, null, 0, error ?? "Falha na verificação ao vivo.");
+            }
+
+            return new MatchResult(true, matched, null, matched ? 100 : 0,
+                matched ? "Verificado." : (error ?? "Digital não confere."));
+        }
+        catch (Exception ex)
+        {
+            return new MatchResult(false, false, null, 0, ex.Message);
+        }
+    }
+
     public MatchResult Identify(string liveTemplateBase64, IEnumerable<(string UserId, string TemplateBase64)> templates)
     {
         try

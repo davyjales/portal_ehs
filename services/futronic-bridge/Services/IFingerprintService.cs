@@ -19,5 +19,7 @@ public interface IFingerprintService
     bool IsDeviceConnected { get; }
     ScanResult ScanSingle(int timeoutMs = 15000, ScanMode mode = ScanMode.Enroll);
     MatchResult Verify(string liveTemplateBase64, string storedTemplateBase64);
+    /// <summary>Confirmação com 1 toque no leitor contra template já capturado.</summary>
+    MatchResult LiveVerify(string storedTemplateBase64, int timeoutMs = 60000);
     MatchResult Identify(string liveTemplateBase64, IEnumerable<(string UserId, string TemplateBase64)> templates);
 }

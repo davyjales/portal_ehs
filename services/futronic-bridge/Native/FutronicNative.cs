@@ -13,25 +13,30 @@ internal static class FtrConstants
     public const int RetcodeCanceledByUser = 5;
     public const int RetcodeCanceledByUserAlt = 8;
 
-    // FTR_PARAM_* (enum starts at 1)
+    // FTR_PARAM_* (FutronicSdkBase / FTRAPI.h)
     public const int ParamImageWidth = 1;
     public const int ParamImageHeight = 2;
     public const int ParamImageSize = 3;
     public const int ParamCbFrameSource = 4;
     public const int ParamCbControl = 5;
     public const int ParamMaxTemplateSize = 6;
-    public const int ParamMaxModels = 7;
-    public const int ParamMaxFarRequested = 10;
+    public const int ParamMaxFarRequested = 7;
+    public const int ParamMaxFarnRequested = 8;
+    public const int ParamSysErrorCode = 9;
+    public const int ParamFakeDetect = 11;
+    public const int ParamFfdControl = 12;
+    public const int ParamMiotControl = 13;
+    // Antes estava em 7 por engano (= FAR). Default do SDK é 5 modelos → 5 toques.
+    public const int ParamMaxModels = 14;
 
     // Frame sources
     public const int FrameSourceUndefined = 0;
     public const int FrameSourceFutronicUsb = 1;
 
-    // Purpose (FTRAPI.h) — FTR_PURPOSE_ENROLL is 3, not 1.
-    // Passing 1 returns FTR_RETCODE_INVALID_PURPOSE (= 3).
-    public const int PurposeVerify = 1;
-    public const int PurposeIdentify = 2;
-    public const int PurposeEnroll = 3;
+    // FTREnroll só aceita ENROLL (e às vezes IDENTIFY). PURPOSE_VERIFY (=1) → código 3.
+    public const int PurposeVerify = 1; // uso em FTRVerify, não em FTREnroll
+    public const int PurposeIdentify = 2; // probe 1 toque para matching/login
+    public const int PurposeEnroll = 3; // cadastro multi-amostra
 
     public const int RetcodeInvalidPurpose = 3;
 
@@ -63,9 +68,9 @@ internal delegate void FtrStateCallback(
 
 internal enum CaptureMode
 {
-    /// <summary>Cadastro: FTR_PURPOSE_ENROLL + 3 modelos (coloca/tira o dedo ~3 vezes).</summary>
+    /// <summary>Cadastro: FTR_PURPOSE_ENROLL + MAX_MODELS=3 (~3 toques).</summary>
     Enroll,
-    /// <summary>Login/confirmação: FTR_PURPOSE_VERIFY (1 toque).</summary>
+    /// <summary>Login: FTR_PURPOSE_IDENTIFY (1 toque) para gerar probe de matching.</summary>
     Verify,
 }
 
@@ -103,6 +108,9 @@ internal static class FutronicNative
 
     [DllImport("FTRAPI.dll", CallingConvention = CallingConvention.StdCall)]
     private static extern int FTREnroll(IntPtr context, int purpose, ref FtrData template);
+
+    [DllImport("FTRAPI.dll", CallingConvention = CallingConvention.StdCall)]
+    private static extern int FTRVerify(IntPtr context, ref FtrData template, out int isVerified, IntPtr reserved);
 
     [DllImport("FTRAPI.dll", CallingConvention = CallingConvention.StdCall)]
     private static extern int FTRMatchingTemplate(ref FtrData template1, ref FtrData template2, out int matched);
@@ -209,7 +217,7 @@ internal static class FutronicNative
                     return false;
                 }
 
-                FTRSetParam(FtrConstants.ParamMaxModels, new IntPtr(EnrollModels));
+                ApplyMaxModels(EnrollModels);
 
                 var callbackPtr = Marshal.GetFunctionPointerForDelegate(_stateCallback);
                 var cbRc = FTRSetParam(FtrConstants.ParamCbControl, callbackPtr);
@@ -279,14 +287,21 @@ internal static class FutronicNative
         return CaptureMode.Enroll;
     }
 
+    private static void ApplyMaxModels(int models)
+    {
+        var rc = FTRSetParam(FtrConstants.ParamMaxModels, new IntPtr(models));
+        FTRGetParam(FtrConstants.ParamMaxModels, out var current);
+        Console.WriteLine($"[Futronic] MAX_MODELS set={models} rc={rc} readback={current}");
+    }
+
     private static (bool Success, byte[]? Template, string? Error) EnrollTemplate(int timeoutMs, CaptureMode mode)
     {
+        // Cadastro: ENROLL + 3 modelos. Login: IDENTIFY (1 toque). Nunca PURPOSE_VERIFY no FTREnroll.
         var purpose = mode == CaptureMode.Verify
-            ? FtrConstants.PurposeVerify
+            ? FtrConstants.PurposeIdentify
             : FtrConstants.PurposeEnroll;
 
-        // Cadastro: 3 modelos. Login/verify: purpose VERIFY → 1 toque.
-        FTRSetParam(FtrConstants.ParamMaxModels, new IntPtr(EnrollModels));
+        ApplyMaxModels(EnrollModels);
         var templateSize = GetMaxTemplateSize();
         var buffer = Marshal.AllocHGlobal(templateSize);
         var deadline = Environment.TickCount64 + timeoutMs;
@@ -325,6 +340,16 @@ internal static class FutronicNative
             var forced = Interlocked.CompareExchange(ref _forceCancel, 0, 0) == 1;
             Console.WriteLine($"[Futronic] FTREnroll retornou código {rc}, size={template.DwSize}, forcedCancel={forced}");
 
+            // Se IDENTIFY não for suportado neste FTRAPI, cai no enroll (multi-toque).
+            if (mode == CaptureMode.Verify && rc == FtrConstants.RetcodeInvalidPurpose)
+            {
+                Console.WriteLine("[Futronic] PURPOSE_IDENTIFY rejeitado; usando ENROLL como fallback.");
+                template.DwSize = templateSize;
+                template.PData = buffer;
+                rc = FTREnroll(IntPtr.Zero, FtrConstants.PurposeEnroll, ref template);
+                Console.WriteLine($"[Futronic] FTREnroll(ENROLL fallback) código {rc}, size={template.DwSize}");
+            }
+
             if (forced || rc == FtrConstants.RetcodeCanceledByUser || rc == FtrConstants.RetcodeCanceledByUserAlt)
             {
                 if (forced || Environment.TickCount64 > Interlocked.Read(ref _captureDeadlineMs))
@@ -361,6 +386,86 @@ internal static class FutronicNative
             Interlocked.Exchange(ref _forceCancel, 0);
             Interlocked.Exchange(ref _captureDeadlineMs, 0);
             Marshal.FreeHGlobal(buffer);
+        }
+    }
+
+    /// <summary>
+    /// Confirmação com 1 toque: FTRVerify ao vivo contra template já cadastrado.
+    /// </summary>
+    public static (bool Success, bool Matched, string? Error) LiveVerify(byte[] storedTemplate, int timeoutMs = 60000)
+    {
+        if (timeoutMs <= 0)
+        {
+            timeoutMs = 60000;
+        }
+
+        lock (Sync)
+        {
+            if (!EnsureInitialized(out var initError))
+            {
+                return (false, false, initError);
+            }
+
+            FTRSetParam(FtrConstants.ParamMaxFarRequested, new IntPtr(FtrConstants.DefaultFarRequested));
+
+            var storedPtr = Marshal.AllocHGlobal(storedTemplate.Length);
+            var deadline = Environment.TickCount64 + timeoutMs;
+            Interlocked.Exchange(ref _captureDeadlineMs, deadline);
+            Interlocked.Exchange(ref _forceCancel, 0);
+            Interlocked.Exchange(ref _captureActive, 1);
+
+            using var timeoutCts = new CancellationTokenSource();
+            var watchdog = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(timeoutMs, timeoutCts.Token);
+                    Interlocked.Exchange(ref _forceCancel, 1);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            }, timeoutCts.Token);
+
+            try
+            {
+                Marshal.Copy(storedTemplate, 0, storedPtr, storedTemplate.Length);
+                var stored = new FtrData { DwSize = storedTemplate.Length, PData = storedPtr };
+
+                Console.WriteLine("[Futronic] FTRVerify ao vivo — coloque o dedo uma vez.");
+                var rc = FTRVerify(IntPtr.Zero, ref stored, out var isVerified, IntPtr.Zero);
+                var forced = Interlocked.CompareExchange(ref _forceCancel, 0, 0) == 1;
+                Console.WriteLine($"[Futronic] FTRVerify rc={rc} verified={isVerified} forced={forced}");
+
+                if (forced || rc == FtrConstants.RetcodeCanceledByUser || rc == FtrConstants.RetcodeCanceledByUserAlt)
+                {
+                    return (false, false, "Tempo esgotado na confirmação. Coloque o dedo uma vez e tente de novo.");
+                }
+
+                if (rc != FtrConstants.RetcodeOk)
+                {
+                    return (false, false, DescribeEnrollError(rc));
+                }
+
+                return (true, isVerified != 0, isVerified != 0 ? null : "Digital não confere.");
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return (false, false, "FTRVerify não encontrada no FTRAPI.dll.");
+            }
+            catch (Exception ex)
+            {
+                return (false, false, ex.Message);
+            }
+            finally
+            {
+                timeoutCts.Cancel();
+                try { watchdog.Wait(500); } catch { /* ignore */ }
+                Interlocked.Exchange(ref _captureActive, 0);
+                Interlocked.Exchange(ref _forceCancel, 0);
+                Interlocked.Exchange(ref _captureDeadlineMs, 0);
+                Marshal.FreeHGlobal(storedPtr);
+            }
         }
     }
 

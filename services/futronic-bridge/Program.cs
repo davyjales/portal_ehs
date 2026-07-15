@@ -161,12 +161,22 @@ app.MapGet("/scan/single", async (HttpContext context) =>
 app.MapPost("/verify", async (HttpRequest request) =>
 {
     var body = await JsonSerializer.DeserializeAsync<VerifyRequest>(request.Body, jsonOptions);
-    if (body?.TemplateBase64 == null || body.StoredTemplateBase64 == null)
+    if (body?.StoredTemplateBase64 == null)
     {
-        return Results.Json(new { success = false, verified = false, message = "Templates obrigatórios." }, jsonOptions);
+        return Results.Json(new { success = false, verified = false, message = "Template armazenado obrigatório." }, jsonOptions);
     }
 
-    var result = fingerprintService.Verify(body.TemplateBase64, body.StoredTemplateBase64);
+    // Confirmação com 1 toque: só storedTemplate → FTRVerify ao vivo.
+    MatchResult result;
+    if (string.IsNullOrWhiteSpace(body.TemplateBase64))
+    {
+        result = fingerprintService.LiveVerify(body.StoredTemplateBase64, body.TimeoutMs ?? 60000);
+    }
+    else
+    {
+        result = fingerprintService.Verify(body.TemplateBase64, body.StoredTemplateBase64);
+    }
+
     return Results.Json(new
     {
         success = result.Success,
@@ -218,6 +228,7 @@ internal sealed class VerifyRequest
 {
     public string? TemplateBase64 { get; set; }
     public string? StoredTemplateBase64 { get; set; }
+    public int? TimeoutMs { get; set; }
 }
 
 internal sealed class IdentifyRequest

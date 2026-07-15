@@ -7,7 +7,7 @@ import {
   identifyUser,
   loginWithBiometric,
   scanSingle,
-  verifyTemplate,
+  verifyLive,
   type BridgeHealth,
 } from "@/lib/biometric-client";
 
@@ -181,10 +181,10 @@ export function BiometricRegistrationPanel({
     setLoading(true);
     setMessage("Confirmação: coloque o mesmo dedo uma vez no sensor.");
     try {
-      const confirmTemplate = await captureTemplate("verify");
-      const verify = await verifyTemplate(confirmTemplate, firstTemplate);
+      // 1 toque ao vivo (FTRVerify) — não usa FTREnroll com PURPOSE_VERIFY (código 3).
+      const verify = await verifyLive(firstTemplate, 60000);
       if (!verify.success || !verify.verified) {
-        onError("As digitais não coincidem. Tente novamente.");
+        onError(verify.message || "As digitais não coincidem. Tente novamente.");
         setStep("first");
         setFirstTemplate(null);
         setMessage("Clique abaixo. No cadastro, coloque e tire o dedo cerca de 3 vezes.");

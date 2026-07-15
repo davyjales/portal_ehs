@@ -81,6 +81,18 @@ export async function verifyTemplate(
   });
 }
 
+/** Confirmação com 1 toque no leitor (FTRVerify ao vivo). */
+export async function verifyLive(
+  storedTemplateBase64: string,
+  timeoutMs = 60000
+): Promise<VerifyResponse> {
+  return bridgeFetch<VerifyResponse>("/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ storedTemplateBase64, timeoutMs }),
+  });
+}
+
 export async function identifyUser(
   templates: BiometricTemplateEntry[],
   liveTemplateBase64?: string

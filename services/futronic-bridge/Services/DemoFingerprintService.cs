@@ -40,6 +40,13 @@ public sealed class DemoFingerprintService : IFingerprintService
         return new MatchResult(true, matched, null, matched ? 100 : 0, matched ? "Verificado." : "Digital não confere.");
     }
 
+    public MatchResult LiveVerify(string storedTemplateBase64, int timeoutMs = 60000)
+    {
+        _ = timeoutMs;
+        // Em demo, confirmação ao vivo equivale a comparar com o mesmo template.
+        return Verify(storedTemplateBase64, storedTemplateBase64);
+    }
+
     public MatchResult Identify(string liveTemplateBase64, IEnumerable<(string UserId, string TemplateBase64)> templates)
     {
         foreach (var (userId, templateBase64) in templates)
