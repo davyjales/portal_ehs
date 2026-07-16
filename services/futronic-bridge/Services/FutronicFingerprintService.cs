@@ -14,7 +14,8 @@ public sealed class FutronicFingerprintService : IFingerprintService
 
     public ScanResult ScanSingle(int timeoutMs = 15000, ScanMode mode = ScanMode.Enroll)
     {
-        var captureMode = mode == ScanMode.Verify ? CaptureMode.Verify : CaptureMode.Enroll;
+        // Verify/login no API = captura PURPOSE_IDENTIFY (probe 1:N).
+        var captureMode = mode == ScanMode.Verify ? CaptureMode.Identify : CaptureMode.Enroll;
         var (success, template, error) = FutronicNative.CaptureTemplate(timeoutMs, captureMode);
         if (!success || template == null)
         {
@@ -22,7 +23,7 @@ public sealed class FutronicFingerprintService : IFingerprintService
         }
 
         var message = mode == ScanMode.Verify
-            ? "Captura de login (1 toque) concluída."
+            ? "Captura de identificação (1 toque) concluída."
             : "Cadastro concluído.";
 
         return new ScanResult(true, FutronicNative.EncodeTemplate(template), null, message);
@@ -82,7 +83,7 @@ public sealed class FutronicFingerprintService : IFingerprintService
                 return new MatchResult(true, false, null, 0, "Nenhuma biometria cadastrada.");
             }
 
-            // 1 usuário: mesmo caminho do login com prontuário (FTRVerify) — o mais confiável.
+            // 1 usuário: FTRVerify — preciso e já validado nos testes.
             if (gallery.Count == 1 && string.IsNullOrWhiteSpace(liveTemplateBase64))
             {
                 var one = LiveVerify(gallery[0].TemplateBase64, timeoutMs);
@@ -99,7 +100,7 @@ public sealed class FutronicFingerprintService : IFingerprintService
                     one.Matched ? "Usuário identificado." : (one.Message ?? "Digital não reconhecida."));
             }
 
-            // Vários usuários / probe informado: 1 toque ENROLL(maxModels=1) + MatchingTemplate.
+            // Vários usuários: 1 toque PURPOSE_IDENTIFY + FTRIdentify (caminho oficial 1:N).
             byte[] probe;
             if (!string.IsNullOrWhiteSpace(liveTemplateBase64))
             {
@@ -116,38 +117,32 @@ public sealed class FutronicFingerprintService : IFingerprintService
                 probe = FutronicNative.DecodeTemplate(scan.TemplateBase64);
             }
 
-            return IdentifyViaMatchingTemplate(probe, gallery);
+            var enrollBytes = gallery
+                .Select(g => FutronicNative.DecodeTemplate(g.TemplateBase64))
+                .ToList();
+
+            var (ok, matchIndex, error) = FutronicNative.IdentifyAgainstGallery(probe, enrollBytes);
+            if (!ok)
+            {
+                Console.WriteLine($"[Futronic] IdentifyAgainstGallery falhou: {error}");
+                return new MatchResult(
+                    false,
+                    false,
+                    null,
+                    0,
+                    error ?? "Falha na identificação. Use prontuário e confirme com a digital.");
+            }
+
+            if (matchIndex < 0)
+            {
+                return new MatchResult(true, false, null, 0, "Digital não reconhecida.");
+            }
+
+            return new MatchResult(true, true, gallery[matchIndex].UserId, 100, "Usuário identificado.");
         }
         catch (Exception ex)
         {
             return new MatchResult(false, false, null, 0, ex.Message);
         }
-    }
-
-    private static MatchResult IdentifyViaMatchingTemplate(
-        byte[] probe,
-        List<(string UserId, string TemplateBase64)> gallery)
-    {
-        string? bestUserId = null;
-        var bestScore = 0;
-
-        foreach (var (userId, templateBase64) in gallery)
-        {
-            var stored = FutronicNative.DecodeTemplate(templateBase64);
-            var (matched, score, _) = FutronicNative.MatchTemplates(probe, stored);
-            Console.WriteLine($"[Futronic] MatchTemplates user={userId} matched={matched} score={score}");
-            if (matched && score >= bestScore)
-            {
-                bestScore = score;
-                bestUserId = userId;
-            }
-        }
-
-        if (bestUserId != null)
-        {
-            return new MatchResult(true, true, bestUserId, bestScore, "Usuário identificado.");
-        }
-
-        return new MatchResult(true, false, null, 0, "Digital não reconhecida.");
     }
 }

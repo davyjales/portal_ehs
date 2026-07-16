@@ -21,14 +21,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Prontuário não encontrado." }, { status: 404 });
   }
 
+  const isAdmin = user.role === "ADMIN";
   const hasBiometric = Boolean(user.biometricCredential);
 
   return NextResponse.json({
     userId: user.id,
     name: user.name,
     role: user.role,
-    hasBiometric,
-    requiresBiometricRegistration: !hasBiometric,
-    requiresPassword: user.role === "ADMIN" && !hasBiometric,
+    hasBiometric: isAdmin ? false : hasBiometric,
+    // Admin nunca cadastra/usa digital neste fluxo.
+    requiresBiometricRegistration: isAdmin ? false : !hasBiometric,
+    requiresBiometricConfirmation: isAdmin ? false : hasBiometric,
+    requiresPassword: isAdmin,
   });
 }

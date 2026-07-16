@@ -4,7 +4,9 @@ import { decryptBiometricTemplate } from "@/lib/biometric-crypto";
 
 export async function GET() {
   try {
+    // Apenas colaboradores — admins entram só com senha.
     const credentials = await prisma.biometricCredential.findMany({
+      where: { user: { role: "EMPLOYEE" } },
       select: {
         userId: true,
         templateEnc: true,

@@ -20,6 +20,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Usuário não encontrado." }, { status: 404 });
     }
 
+    if (user.role === "ADMIN") {
+      return NextResponse.json(
+        { error: "Administradores entram com prontuário e senha, sem biometria." },
+        { status: 403 }
+      );
+    }
+
     if (!user.biometricCredential) {
       return NextResponse.json(
         { error: "Usuário não possui biometria cadastrada." },

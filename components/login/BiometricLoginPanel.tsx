@@ -57,7 +57,8 @@ export default function BiometricLoginPanel({
 
       let userId: string | undefined;
 
-      // 1 cadastro: mesmo caminho do prontuário+digital (FTRVerify) — evita identify 1:N quebrado.
+      // 1 cadastro: FTRVerify (mesmo do prontuário+digital).
+      // Vários: 1 toque FEATURE IDENTIFY no bridge (FTRIdentify). Se falhar, peça prontuário.
       if (templates.length === 1) {
         const verify = await verifyLive(templates[0].templateBase64, 60000);
         if (!verify.success || verify.verified !== true) {
@@ -66,10 +67,14 @@ export default function BiometricLoginPanel({
         }
         userId = templates[0].userId;
       } else {
-        // Vários cadastros: 1 toque no bridge + comparação ENROLL compatível.
         const identify = await identifyUser(templates);
         if (!identify.success || !identify.matched || !identify.userId) {
-          onError(identify.message || "Digital não reconhecida.");
+          const msg = identify.message || "Digital não reconhecida.";
+          onError(
+            /prontuário/i.test(msg)
+              ? msg
+              : `${msg} Se persistir, entre com o prontuário e confirme a digital.`
+          );
           return;
         }
         userId = identify.userId;

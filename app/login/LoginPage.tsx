@@ -67,25 +67,48 @@ export default function LoginPage() {
         return;
       }
 
-      if (statusData.requiresBiometricRegistration) {
-        if (statusData.requiresPassword && !requiresPassword) {
+      // Admin: prontuário + senha apenas (sem digital).
+      if (statusData.role === "ADMIN" || statusData.requiresPassword) {
+        if (!requiresPassword) {
           setRequiresPassword(true);
-          setError("Informe a senha de administrador para continuar.");
+          setError("Informe a senha de administrador.");
           return;
         }
 
-        if (statusData.requiresPassword && requiresPassword && !password) {
+        if (!password) {
           setError("Senha é obrigatória para administradores.");
           return;
         }
 
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prontuario: prontuario.trim(),
+            password,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          if (data.requiresPassword) {
+            setRequiresPassword(true);
+          }
+          setError(data.error || "Erro ao entrar.");
+          return;
+        }
+
+        handleLoginSuccess({ role: data.role });
+        return;
+      }
+
+      if (statusData.requiresBiometricRegistration) {
         setPendingRole(statusData.role);
-        setPendingAdminPassword(statusData.requiresPassword ? password : undefined);
+        setPendingAdminPassword(undefined);
         setMode("register-biometric");
         return;
       }
 
-      // Já tem biometria: pedir confirmação da digital (não cria sessão só com prontuário).
+      // Colaborador com biometria: confirmar digital.
       setPendingUserId(statusData.userId);
       setPendingUserName(statusData.name ?? "");
       setPendingRole(statusData.role ?? "EMPLOYEE");
@@ -114,7 +137,7 @@ export default function LoginPage() {
                 ? "Confirme sua digital para acessar o portal."
                 : mode === "biometric"
                   ? "Posicione sua digital no leitor para acessar o portal."
-                  : "Informe seu prontuário. No primeiro acesso cadastre a digital; nos próximos, confirme com o dedo."}
+                  : "Colaboradores: prontuário e digital. Administradores: prontuário e senha."}
           </p>
 
           {error && (
@@ -164,7 +187,7 @@ export default function LoginPage() {
                     {...touchKeyboardProps()}
                   />
                   <p className="text-xs text-slate-500 mt-1">
-                    Conta de administrador — senha obrigatória para cadastrar a digital.
+                    Conta de administrador — entre com prontuário e senha.
                   </p>
                 </div>
               )}
@@ -185,7 +208,7 @@ export default function LoginPage() {
                 }}
                 className="w-full py-2 text-sm text-slate-500 hover:text-slate-700"
               >
-                Já cadastrou biometria? Entrar com digital
+                Colaborador? Entrar com digital
               </button>
             </form>
           )}

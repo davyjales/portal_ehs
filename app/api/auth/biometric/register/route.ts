@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { encryptBiometricTemplate } from "@/lib/biometric-crypto";
 import { establishUserSession } from "@/lib/session-establish";
@@ -7,7 +6,7 @@ import type { Role } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   try {
-    const { prontuario, password, templateBase64, fingerLabel } = await request.json();
+    const { prontuario, templateBase64, fingerLabel } = await request.json();
 
     if (!prontuario?.trim()) {
       return NextResponse.json({ error: "Prontuário é obrigatório." }, { status: 400 });
@@ -31,27 +30,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (user.role === "ADMIN") {
-      if (!password) {
-        return NextResponse.json(
-          { error: "Senha é obrigatória para cadastrar biometria de administrador.", requiresPassword: true },
-          { status: 401 }
-        );
-      }
-
-      if (!user.passwordHash) {
-        return NextResponse.json(
-          { error: "Conta de administrador sem senha configurada." },
-          { status: 401 }
-        );
-      }
-
-      const valid = await bcrypt.compare(String(password), user.passwordHash);
-      if (!valid) {
-        return NextResponse.json(
-          { error: "Senha incorreta.", requiresPassword: true },
-          { status: 401 }
-        );
-      }
+      return NextResponse.json(
+        { error: "Administradores entram com prontuário e senha, sem cadastro de biometria." },
+        { status: 403 }
+      );
     }
 
     const templateEnc = encryptBiometricTemplate(String(templateBase64).trim());

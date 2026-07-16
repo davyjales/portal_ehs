@@ -47,8 +47,9 @@ internal static class FtrConstants
     public const int Continue = 2;
 
     // FAR = valor / (2^31-1). Maior = mais permissivo.
-    // 0.05 (107374182) é só demo no manual — aceita demais. ~0.0001 para login.
-    public const int StrictFarRequested = 214748;
+    // 0.05 (107374182) = demo frouxo. 1:1 usa ~0.0001; 1:N um pouco menos apertado (~0.001).
+    public const int StrictFarRequested = 214748;      // ~0.0001 — FTRVerify
+    public const int IdentifyFarRequested = 2147483;   // ~0.001 — FTRIdentify
     public const int DefaultFarRequested = StrictFarRequested;
 }
 
@@ -72,14 +73,13 @@ internal delegate void FtrStateCallback(
 
 internal enum CaptureMode
 {
-    /// <summary>Cadastro: FTR_PURPOSE_ENROLL + MAX_MODELS=3 (~3 toques).</summary>
+    /// <summary>Cadastro: FTR_PURPOSE_ENROLL + MAX_MODELS (~3 toques).</summary>
     Enroll,
     /// <summary>
-    /// Login 1:N: FTR_PURPOSE_ENROLL + MAX_MODELS=1 (1 toque).
-    /// Continua compatível com FTRMatchingTemplate / templates ENROLL guardados
-    /// (PURPOSE_IDENTIFY + MatchingTemplate não casa e o login só-digital falhava).
+    /// Login 1:N (1 toque): FTR_PURPOSE_IDENTIFY → FTRSetBaseTemplate + FTRIdentify.
+    /// SDK exige mínimo 3 em MAX_MODELS para ENROLL; probe IDENTIFY é o caminho correto de 1 toque.
     /// </summary>
-    Verify,
+    Identify,
 }
 
 internal static class FutronicNative
@@ -138,30 +138,29 @@ internal static class FutronicNative
 
     private const int DataKeyLength = 10;
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct FtrIdentifyRecord
+    // Layout FTRAPI.h: KeyValue[10] + PFTRDATA (pack 4 → PData em offset 12).
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    private unsafe struct FtrIdentifyRecord
     {
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = DataKeyLength)]
-        public byte[] KeyValue;
+        public fixed byte KeyValue[DataKeyLength];
         public IntPtr PData;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
     private struct FtrIdentifyArray
     {
         public int TotalNumber;
         public IntPtr PMembers;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct FtrMatchedRecord
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    private unsafe struct FtrMatchedRecord
     {
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = DataKeyLength)]
-        public byte[] KeyValue;
+        public fixed byte KeyValue[DataKeyLength];
         public int FarAttained;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
     private struct FtrMatchedArray
     {
         public int TotalNumber;
@@ -333,10 +332,11 @@ internal static class FutronicNative
 
     public static CaptureMode ParseCaptureMode(string? mode)
     {
-        if (string.Equals(mode, "verify", StringComparison.OrdinalIgnoreCase) ||
+        if (string.Equals(mode, "identify", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(mode, "verify", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(mode, "login", StringComparison.OrdinalIgnoreCase))
         {
-            return CaptureMode.Verify;
+            return CaptureMode.Identify;
         }
 
         return CaptureMode.Enroll;
@@ -360,23 +360,25 @@ internal static class FutronicNative
     }
 
     /// <summary>
-    /// FAR estrito para verificação/identificação (login seguro).
+    /// FAR para match. 1:1 bem estrito; 1:N um pouco menos apertado (ainda seguro).
     /// </summary>
-    private static void ApplyMatchSecurity()
+    private static void ApplyMatchSecurity(bool forIdentify = false)
     {
-        var far = FtrConstants.StrictFarRequested;
+        var far = forIdentify ? FtrConstants.IdentifyFarRequested : FtrConstants.StrictFarRequested;
         var rc = FTRSetParam(FtrConstants.ParamMaxFarRequested, new IntPtr(far));
         FTRGetParam(FtrConstants.ParamMaxFarRequested, out var current);
-        Console.WriteLine($"[Futronic] MAX_FAR set={far} (~0.0001) rc={rc} readback={current}");
+        var label = forIdentify ? "~0.001" : "~0.0001";
+        Console.WriteLine($"[Futronic] MAX_FAR set={far} ({label}) rc={rc} readback={current}");
     }
 
     private static (bool Success, byte[]? Template, string? Error) EnrollTemplate(int timeoutMs, CaptureMode mode)
     {
-        // Sempre PURPOSE_ENROLL. Cadastro: N modelos. Login/probe: 1 modelo (1 toque) para MatchingTemplate.
-        // Nunca PURPOSE_VERIFY no FTREnroll (código 3). PURPOSE_IDENTIFY fica só para FTRSetBaseTemplate.
-        var purpose = FtrConstants.PurposeEnroll;
-        var models = mode == CaptureMode.Verify ? 1 : EnrollModels;
-        ApplyMaxModels(models);
+        // Cadastro: PURPOSE_ENROLL. Login 1:N: PURPOSE_IDENTIFY (1 toque) → FTRIdentify.
+        // Nunca PURPOSE_VERIFY no FTREnroll (código 3). MAX_MODELS mínimo do SDK = 3.
+        var purpose = mode == CaptureMode.Identify
+            ? FtrConstants.PurposeIdentify
+            : FtrConstants.PurposeEnroll;
+        ApplyMaxModels(EnrollModels);
         var templateSize = GetMaxTemplateSize();
         var buffer = Marshal.AllocHGlobal(templateSize);
         var deadline = Environment.TickCount64 + timeoutMs;
@@ -406,10 +408,10 @@ internal static class FutronicNative
             };
 
             var hint = mode == CaptureMode.Enroll
-                ? $"Coloque e tire o dedo ~{models} vezes"
-                : "Coloque o dedo uma vez (probe de login)";
+                ? $"Coloque e tire o dedo ~{EnrollModels} vezes"
+                : "Coloque o dedo uma vez (identificação 1:N)";
             Console.WriteLine(
-                $"[Futronic] FTREnroll mode={mode} purpose={purpose} models={models} timeout={timeoutMs}ms. {hint}.");
+                $"[Futronic] FTREnroll mode={mode} purpose={purpose} timeout={timeoutMs}ms. {hint}.");
 
             var rc = FTREnroll(IntPtr.Zero, purpose, ref template);
             var forced = Interlocked.CompareExchange(ref _forceCancel, 0, 0) == 1;
@@ -610,10 +612,9 @@ internal static class FutronicNative
     }
 
     /// <summary>
-    /// 1:N: probe com PURPOSE_IDENTIFY + FTRSetBaseTemplate + FTRIdentify contra templates ENROLL.
-    /// (FTRMatchingTemplate entre IDENTIFY e ENROLL não funciona — era a falha do login.)
+    /// 1:N: probe PURPOSE_IDENTIFY + FTRSetBaseTemplate + FTRIdentify contra templates ENROLL.
     /// </summary>
-    public static (bool Success, int MatchIndex, string? Error) IdentifyAgainstGallery(
+    public static unsafe (bool Success, int MatchIndex, string? Error) IdentifyAgainstGallery(
         byte[] identifyProbe,
         IReadOnlyList<byte[]> enrollTemplates)
     {
@@ -629,7 +630,7 @@ internal static class FutronicNative
                 return (false, -1, initError);
             }
 
-            ApplyMatchSecurity();
+            ApplyMatchSecurity(forIdentify: true);
 
             var probePtr = Marshal.AllocHGlobal(identifyProbe.Length);
             var galleryPtrs = new IntPtr[enrollTemplates.Count];
@@ -642,18 +643,19 @@ internal static class FutronicNative
                 Marshal.Copy(identifyProbe, 0, probePtr, identifyProbe.Length);
                 var probe = new FtrData { DwSize = identifyProbe.Length, PData = probePtr };
 
-                Console.WriteLine($"[Futronic] FTRSetBaseTemplate size={identifyProbe.Length}");
+                Console.WriteLine(
+                    $"[Futronic] FTRSetBaseTemplate size={identifyProbe.Length} recordSize={sizeof(FtrIdentifyRecord)}");
                 var baseRc = FTRSetBaseTemplate(ref probe);
                 Console.WriteLine($"[Futronic] FTRSetBaseTemplate rc={baseRc}");
                 if (baseRc != FtrConstants.RetcodeOk)
                 {
                     return (false, -1,
                         baseRc == FtrConstants.RetcodeInvalidPurpose
-                            ? "Probe inválido para identificação (PURPOSE_IDENTIFY). Refaça o login com digital."
-                            : $"FTRSetBaseTemplate falhou (código {baseRc}).");
+                            ? "Probe inválido (PURPOSE_IDENTIFY). Use prontuário e confirme com a digital."
+                            : $"FTRSetBaseTemplate falhou (código {baseRc}). Use prontuário e confirme com a digital.");
                 }
 
-                var recordSize = Marshal.SizeOf<FtrIdentifyRecord>();
+                var recordSize = sizeof(FtrIdentifyRecord);
                 recordsPtr = Marshal.AllocHGlobal(recordSize * enrollTemplates.Count);
 
                 for (var i = 0; i < enrollTemplates.Count; i++)
@@ -666,15 +668,16 @@ internal static class FutronicNative
                     var data = new FtrData { DwSize = tpl.Length, PData = galleryPtrs[i] };
                     Marshal.StructureToPtr(data, ftrDataPtrs[i], false);
 
-                    var key = new byte[DataKeyLength];
-                    BitConverter.TryWriteBytes(key.AsSpan(0, 4), i);
-
-                    var record = new FtrIdentifyRecord
+                    var record = new FtrIdentifyRecord { PData = ftrDataPtrs[i] };
+                    // KeyValue = índice da galeria (lido de volta no match).
+                    var idxBytes = BitConverter.GetBytes(i);
+                    for (var k = 0; k < DataKeyLength; k++)
                     {
-                        KeyValue = key,
-                        PData = ftrDataPtrs[i],
-                    };
-                    Marshal.StructureToPtr(record, recordsPtr + (i * recordSize), false);
+                        record.KeyValue[k] = k < idxBytes.Length ? idxBytes[k] : (byte)0;
+                    }
+
+                    var dest = (FtrIdentifyRecord*)(recordsPtr + (i * recordSize));
+                    *dest = record;
                 }
 
                 var source = new FtrIdentifyArray
@@ -683,18 +686,10 @@ internal static class FutronicNative
                     PMembers = recordsPtr,
                 };
 
-                const int maxMatches = 3;
-                var matchedSize = Marshal.SizeOf<FtrMatchedRecord>();
+                const int maxMatches = 5;
+                var matchedSize = sizeof(FtrMatchedRecord);
                 matchedPtr = Marshal.AllocHGlobal(matchedSize * maxMatches);
-                for (var i = 0; i < maxMatches; i++)
-                {
-                    var empty = new FtrMatchedRecord
-                    {
-                        KeyValue = new byte[DataKeyLength],
-                        FarAttained = 0,
-                    };
-                    Marshal.StructureToPtr(empty, matchedPtr + (i * matchedSize), false);
-                }
+                NativeMemory.Clear((void*)matchedPtr, (nuint)(matchedSize * maxMatches));
 
                 var matchArray = new FtrMatchedArray
                 {
@@ -709,7 +704,8 @@ internal static class FutronicNative
 
                 if (idRc != FtrConstants.RetcodeOk)
                 {
-                    return (false, -1, $"FTRIdentify falhou (código {idRc}).");
+                    return (false, -1,
+                        $"Identificação 1:N falhou (código {idRc}). Use prontuário e confirme com a digital.");
                 }
 
                 if (matchCnt <= 0)
@@ -717,24 +713,23 @@ internal static class FutronicNative
                     return (true, -1, null);
                 }
 
-                var best = Marshal.PtrToStructure<FtrMatchedRecord>(matchedPtr);
-                if (best.KeyValue == null || best.KeyValue.Length < 4)
-                {
-                    return (true, -1, null);
-                }
-
-                var index = BitConverter.ToInt32(best.KeyValue, 0);
+                var best = *(FtrMatchedRecord*)matchedPtr;
+                var index = best.KeyValue[0]
+                            | (best.KeyValue[1] << 8)
+                            | (best.KeyValue[2] << 16)
+                            | (best.KeyValue[3] << 24);
                 if (index < 0 || index >= enrollTemplates.Count)
                 {
-                    return (false, -1, "Índice de match inválido retornado pelo SDK.");
+                    return (false, -1, "Índice de match inválido. Use prontuário e confirme com a digital.");
                 }
 
+                Console.WriteLine($"[Futronic] FTRIdentify match index={index} far={best.FarAttained}");
                 return (true, index, null);
             }
             catch (EntryPointNotFoundException)
             {
                 return (false, -1,
-                    "FTRIdentify/FTRSetBaseTemplate não encontrada no FTRAPI.dll.");
+                    "FTRIdentify não encontrada no FTRAPI.dll. Use prontuário e confirme com a digital.");
             }
             catch (Exception ex)
             {
