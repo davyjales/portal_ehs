@@ -247,7 +247,7 @@ export function BiometricRegistrationPanel({
   const [loading, setLoading] = useState(false);
   const [bridgeReady, setBridgeReady] = useState<boolean | null>(null);
   const [message, setMessage] = useState(
-    "Clique abaixo. Use SEMPRE o mesmo dedo em todas as amostras (não troque de dedo)."
+    "Clique abaixo. Use SEMPRE o mesmo dedo: coloque e tire o dedo 5 vezes no leitor para registrar."
   );
 
   useEffect(() => {
@@ -263,7 +263,9 @@ export function BiometricRegistrationPanel({
         return;
       }
       setBridgeReady(true);
-      setMessage("Clique abaixo. Use SEMPRE o mesmo dedo em todas as amostras (não troque de dedo).");
+      setMessage(
+        "Clique abaixo. Use SEMPRE o mesmo dedo: coloque e tire o dedo 5 vezes no leitor para registrar."
+      );
     });
   }, []);
 
@@ -282,7 +284,7 @@ export function BiometricRegistrationPanel({
     }
 
     setLoading(true);
-    setMessage("Cadastro: mesmo dedo, coloque e tire várias vezes até o LED parar.");
+    setMessage("Cadastro: coloque e tire o MESMO dedo 5 vezes no leitor até o LED parar.");
     try {
       const template = await captureTemplate("enroll");
       setFirstTemplate(template);
@@ -290,7 +292,9 @@ export function BiometricRegistrationPanel({
       setMessage("Confirmação: coloque o MESMO dedo uma vez.");
     } catch (err) {
       onError(err instanceof Error ? err.message : "Erro na captura.");
-      setMessage("Clique abaixo. Use SEMPRE o mesmo dedo em todas as amostras (não troque de dedo).");
+      setMessage(
+        "Clique abaixo. Use SEMPRE o mesmo dedo: coloque e tire o dedo 5 vezes no leitor para registrar."
+      );
     } finally {
       setLoading(false);
     }
@@ -308,7 +312,9 @@ export function BiometricRegistrationPanel({
         onError(verify.message || "As digitais não coincidem. Tente novamente.");
         setStep("first");
         setFirstTemplate(null);
-        setMessage("Clique abaixo. Use SEMPRE o mesmo dedo em todas as amostras (não troque de dedo).");
+        setMessage(
+          "Clique abaixo. Use SEMPRE o mesmo dedo: coloque e tire o dedo 5 vezes no leitor para registrar."
+        );
         return;
       }
 
@@ -346,7 +352,7 @@ export function BiometricRegistrationPanel({
         </p>
         <p className="text-xs text-emerald-700 mt-2">
           Etapa {step === "first" ? "1" : "2"} de 2
-          {step === "first" ? " · ~3 amostras" : " · 1 toque"}
+          {step === "first" ? " · coloque e tire o dedo 5 vezes" : " · 1 toque de confirmação"}
         </p>
       </div>
 

@@ -14,6 +14,9 @@ import BiometricLoginPanel, {
 
 type LoginMode = "prontuario" | "register-biometric" | "confirm-biometric" | "biometric";
 
+/** Oculto por enquanto — o código do login só com digital permanece. */
+const SHOW_BIOMETRIC_ONLY_LOGIN = false;
+
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -132,7 +135,7 @@ export default function LoginPage() {
           <h1 className="text-2xl font-bold text-slate-800 mb-1">Entrar</h1>
           <p className="text-slate-500 text-sm mb-6">
             {mode === "register-biometric"
-              ? "Cadastre sua digital para vincular ao prontuário."
+              ? "Cadastre sua digital: coloque e tire o mesmo dedo 5 vezes no leitor."
               : mode === "confirm-biometric"
                 ? "Confirme sua digital para acessar o portal."
                 : mode === "biometric"
@@ -200,16 +203,18 @@ export default function LoginPage() {
                 {loading ? "Verificando..." : "Continuar"}
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setMode("biometric");
-                  setError(null);
-                }}
-                className="w-full py-2 text-sm text-slate-500 hover:text-slate-700"
-              >
-                Colaborador? Entrar com digital
-              </button>
+              {SHOW_BIOMETRIC_ONLY_LOGIN && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("biometric");
+                    setError(null);
+                  }}
+                  className="w-full py-2 text-sm text-slate-500 hover:text-slate-700"
+                >
+                  Colaborador? Entrar com digital
+                </button>
+              )}
             </form>
           )}
 

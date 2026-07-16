@@ -58,7 +58,7 @@ export async function checkBridge(): Promise<BridgeHealth | null> {
 
 export type ScanMode = "enroll" | "verify";
 
-/** enroll = cadastro (~3 toques); verify = login/confirmação (1 toque). */
+/** enroll = cadastro (~5 toques); verify = login/confirmação (1 toque). */
 export async function scanSingle(options?: {
   timeoutMs?: number;
   mode?: ScanMode;
